@@ -33,6 +33,9 @@ class TaskDetail(BaseModel):
     report_engineer_id: Union[int, None]
     create_time: Union[str, None]
     update_time: Union[str, None]
+    photo_path: Union[str, None]
+    location: Union[str, None]
+    completed_photo_path: Union[str, None]
     
     class Config:
         from_attributes = True
@@ -129,12 +132,20 @@ async def add_engineer(**kwargs):
     return GeneticResponse()
 
 
-async def get_engineer_by_id(_id: int):
+async def save_task_image(task_id: str, type: str, save_path: str):
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            info = await session.scalar(
-                select(Device2UserInfo).filter_by(id=_id)
+            task_info = await session.scalar(
+                select(HandleTaskRecord).filter_by(task_id=task_id)
             )
-            if info:
-                return GeneticResponse(data=info.device_id)
-    return GeneticResponse(code=400)
+            if task_info:
+                if type == "upload_start_task_image":
+                    task_info.photo_path = save_path
+                    session.add(task_info)
+                    return 1
+                elif type == "upload_finish_task_image":
+                    task_info.completed_photo_path = save_path
+                    task_info.status = 4
+                    session.add(task_info)
+                    return 1
+    return 0

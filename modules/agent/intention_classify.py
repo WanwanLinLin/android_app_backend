@@ -34,13 +34,13 @@ async def get_user_intention(question: str):
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": question},
         ],
-        extra_body={"chat_template_kwargs": {"enable_thinking": True}, "top_k": 20, "min_p": 0},
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 20, "min_p": 0},
         temperature=0.6,
         top_p=0.95
     )
     response = completion.choices[0].message.content
     _json_str = extract_json_from_response(response)
-    return _json_str
+    return json.loads(_json_str, strict=False)
 
 
 async def is_legal_position(question: str):
@@ -49,6 +49,7 @@ async def is_legal_position(question: str):
     返回以下格式的 JSON：
     {{
         "legal": true/false,
+        "position": "识别到的地点名称，如果不存在则为 undefied"
     }}
     """
 

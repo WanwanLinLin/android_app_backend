@@ -31,7 +31,9 @@ async def wait_for_task_msg():
             task_msg = task_queue.get()
             LOG(f"\n📩 获取到任务：{task_msg} 开始执行...", "DEBUG")
             try:
-                if task_msg["type"] == "receive_task":
+                if task_msg["type"] == "confirm_task_position":
+                    await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).confirm_task_position(task_msg["text"])
+                elif task_msg["type"] == "receive_task":
                     await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).receive_task(task_msg["text"])
                 elif task_msg["type"] == "start_task":
                     await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).start_task(task_msg["text"])

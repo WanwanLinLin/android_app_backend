@@ -51,6 +51,7 @@ class Task(Base_Work_Order):
     completed_photo_path = Column(String(500), default="")
     status = Column(Integer, default=0)
     assignee_ids = Column(String(500), default="[]")
+    task_type = Column(String(50), default="", comment="任务类型")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     owner_id = Column(Integer, ForeignKey("users.id"))

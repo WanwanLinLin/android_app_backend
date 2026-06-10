@@ -89,6 +89,17 @@ async def list_engineers_detail():
         return result
 
 
+async def get_engineer_by_id(_id: int):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            info = await session.scalar(
+                select(User).filter_by(id=_id)
+            )
+            if info:
+                return _EngineerDetail.model_validate(info)
+    return 0
+
+
 if __name__ == "__main__":
     import asyncio
     

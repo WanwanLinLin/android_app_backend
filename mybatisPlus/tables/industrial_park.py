@@ -26,13 +26,15 @@ class HandleTaskRecord(Base):
     location = Column(String(64), comment="事件位置（经纬度）")
     event_description = Column(Text(length=65535, collation='utf8mb4_general_ci'), default=None, comment="上报事件描述")
     solution = Column(Text(length=65535, collation='utf8mb4_general_ci'), default=None, comment="解决方案")
-    status = Column(Integer, default=0, comment="任务状态，0:待确认;1:已确认;2:已经到达现场;3已上传现场照片;4:已完成;5.已上传完成照片;-1:失败")
+    status = Column(Integer, default=0, comment="任务状态，0:待确认;1:已确认;2:已经到达现场;3:已完成;4.已上传完成照片;-1:失败")
     ack = Column(Boolean, default=False, comment="是否确认提交该解决方案工单")
     exclude_engineer_id_list = Column(String(50), default=None, comment="排除的处理人列表")
     engineer_id = Column(Integer, nullable=True, comment="待解决问题的工程师id")
     report_engineer_id = Column(Integer, nullable=True, comment="上报问题的工程师id")
     create_time = Column(String(50), comment="创建时间", default=None)
     update_time = Column(String(50), comment="更新时间", default=None)
+    photo_path = Column(String(500), default="")
+    completed_photo_path = Column(String(500), default="")
     is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
     
 
