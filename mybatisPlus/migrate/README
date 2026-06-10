@@ -1,0 +1,11 @@
+# Generic single-database configuration.
+
+# 数据库新增字段
+    cd mybatisPlus/
+
+    先修改 alembic.ini 文件的63行
+
+    alembic revision --autogenerate -m "add a new column"
+
+    alembic upgrade head
+    
