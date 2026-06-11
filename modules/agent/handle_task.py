@@ -19,6 +19,7 @@ from .make_solution import get_perfect_solution
 from .intention_classify import get_user_intention, is_legal_position
 from geopy.distance import geodesic
 
+
 async def receive_task_agent(topic: str, task_id: str, event_description: str, location: str,
                              device_id: str):
     """

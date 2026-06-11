@@ -8,6 +8,7 @@ from threading import Thread
 from modules.tasks.views import router as task_router
 from modules.device.views import router as device_router
 from modules.user.views import router as user_router
+from modules.inspection.views import router as inspection_router
 
 app = FastAPI()
 
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(task_router)
 app.include_router(device_router)
 app.include_router(user_router)
+app.include_router(inspection_router)
 
 
 # 处理所有异常
