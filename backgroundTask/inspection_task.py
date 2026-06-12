@@ -32,7 +32,7 @@ async def monitor_inspection_workflow(task_id: str):
                 "task_id": task_id
             }
             if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
         elif (datetime.now() - datetime.strptime(inspection_info["start_time"], "%Y-%m-%d %H:%M:%S")).total_seconds() > 0:
             person_report_topic_msg = {
                 "type": "confirm_inspection_task",
@@ -40,7 +40,7 @@ async def monitor_inspection_workflow(task_id: str):
                 "task_id": task_id
             }
             if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
         await asyncio.sleep(30)
         inspection_info = await wo_get_inspection_info_by_task_id(task_id)
     
@@ -50,7 +50,7 @@ async def monitor_inspection_workflow(task_id: str):
                 "task_id": task_id
     }
     if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-        LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+        LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
     await asyncio.sleep(10)
     
     inspection_info = await wo_get_inspection_info_by_task_id(task_id)
@@ -66,7 +66,7 @@ async def monitor_inspection_workflow(task_id: str):
                 "task_id": task_id
             }
             if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+                LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
             return
         elif inspection_info["checked_floor_ids"]:
             res = await determine_inspection_way(inspection_info["floor_ids"], inspection_info["floor_name"],
@@ -78,7 +78,7 @@ async def monitor_inspection_workflow(task_id: str):
                     "task_id": task_id
                 }
                 if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-                    LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+                    LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
                 await wo_update_inspection_check_floors_ids(task_id, res["floor_ids"])
                 await wo_update_inspection_process_msg(task_id, res["reason"])
             else:
@@ -88,7 +88,7 @@ async def monitor_inspection_workflow(task_id: str):
                     "task_id": task_id
                 }
                 if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-                    LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+                    LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
         # 每隔30秒检查一次状态
         await asyncio.sleep(30)
     await wo_update_inspection_status(task_id, -1)
@@ -98,11 +98,12 @@ async def monitor_inspection_workflow(task_id: str):
         "task_id": task_id
     }
     if await AsyncMqtt().publish_message(f"task/{inspection_info['device_ids'][0]}", json.dumps(person_report_topic_msg, ensure_ascii=False)):
-        LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息.", "DEBUG")
+        LOG(f"✅ 任务 {task_id} 成功向 task/{inspection_info['device_ids'][0]} 推送巡检消息. {person_report_topic_msg}", "DEBUG")
     PENDING_TASKS.remove(task_id)
 
 
 async def main():
+    LOG("Inspection Task Start", "DEBUG")
     try:
         while 1:
             # LOG("Waiting for inspection task", "DEBUG")

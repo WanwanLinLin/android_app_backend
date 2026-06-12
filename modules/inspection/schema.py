@@ -1,6 +1,10 @@
 from pydantic import BaseModel
 
 
+class HistoryModel(BaseModel):
+    device_id: str
+
+
 class InfoModel(BaseModel):
     task_id: str
     

@@ -231,3 +231,38 @@ async def wo_update_inspection_process_msg(task_id: str, process_msg: str):
                 session.add(task_info)
                 return 1
     return None
+
+
+async def wo_get_all_history_tasks(device_id: str):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            task_info = await session.scalars(
+                select(InspectionTask)
+            )
+            if task_info:
+                _res = []
+                for t in task_info:
+                    floor_name = []
+                    checked_floor_name = []
+                    device_ids = []
+                    _task_detail = _InspectionDetail.model_validate(t).model_dump()
+                    for i in _task_detail["floor_ids"]:
+                        nf_info = await session.scalar(select(NfcFloor).filter_by(id=i))
+                        floor_name.append(nf_info.floor_name)
+                    for j in _task_detail["checked_floor_ids"]:
+                        nf_info = await session.scalar(select(NfcFloor).filter_by(id=j))
+                        checked_floor_name.append(nf_info.floor_name)
+                    for z in _task_detail["assignee_ids"]:
+                        device_info = await session.scalar(select(Device2UserInfo).filter_by(engineer_id=z))
+                        device_ids.append(device_info.device_id)
+                    _task_detail["floor_name"] = floor_name
+                    _task_detail["checked_floor_name"] = checked_floor_name
+                    _task_detail["device_ids"] = device_ids
+                    
+                    _res.append(_task_detail)
+                res = []
+                for r in _res:
+                    if device_id in r["device_ids"]:
+                        res.append(r)
+                return res
+    return None

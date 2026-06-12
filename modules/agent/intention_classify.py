@@ -110,10 +110,10 @@ async def determine_inspection_way(floor_ids: List, floor_name: List,
                                    check_floor_ids: List, check_floor_name: List):
     question = f"""
 现在有一个巡检任务，保安必须要按目的地名称列表顺序进行巡检，你需要校验保安当前的巡检路径是否正确，
-目的地名称列表：{floor_name},
-目的地id列表：{floor_ids},
-保安当前已经巡视的名称列表：{check_floor_name},
-保安当前已经巡视的id列表：{check_floor_ids},
+目的地名称列表：{list(set(floor_name))},
+目的地id列表：{list(set(floor_ids))},
+保安当前已经巡视的名称列表：{list(set(check_floor_name))},
+保安当前已经巡视的id列表：{list(set(check_floor_ids))},
 请返回以下格式的 JSON：
 {{
   "correct": true/false
@@ -124,6 +124,7 @@ async def determine_inspection_way(floor_ids: List, floor_name: List,
 注意：
 1.如果保安一开始没有按照目的地名称列表进行巡检，那么floor_ids应该直接清空，并且next_position为第一个目的地名称
 2.如果保安中途巡视目的地顺序错误，那么floor_ids仅保留先前巡检正确的目的地id，next_position应该为下一个正确的目的地名称。
+3.目的地名称列表与目的地id列表是按顺序一一对应的，请注意识别
 """
 
     llm_client = AsyncOpenAI(

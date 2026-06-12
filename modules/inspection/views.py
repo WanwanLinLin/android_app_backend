@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, UploadFile, status
 from utils.common.schema import GeneticResponse
 from utils.randomString import create_numbering
 from setting import config_data
-from mybatisPlus.work_order_inspection_orm import (wo_get_inspection_info_by_task_id, wo_get_nfc_info,
+from mybatisPlus.work_order_inspection_orm import (wo_get_all_history_tasks, wo_get_inspection_info_by_task_id, wo_get_nfc_info,
                                                    wo_get_all_unstart_tasks, wo_start_inspection_task,
                                                    wo_check_in_inspection_task)
 
@@ -27,6 +27,11 @@ async def _start(info: schema.StartModel):
 @router.post("/v1/inspection/info")
 async def _info(info: schema.InfoModel):
     return GeneticResponse(data=await wo_get_inspection_info_by_task_id(info.task_id))
+
+
+@router.post("/v1/inspection/history")
+async def _info(info: schema.HistoryModel):
+    return GeneticResponse(data=await wo_get_all_history_tasks(info.device_id))
 
 
 @router.post("/v1/inspection/checkIn")
