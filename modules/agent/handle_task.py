@@ -31,10 +31,10 @@ async def receive_task_agent(topic: str, task_id: str, event_description: str, l
     person_report_topic = f"task/{device_id}"
     # 先判断用户的问题是否合规？
     intention = await get_user_intention(event_description)
-    if intention["type"] != TaskTypeEnum.FaultReporting.value:
+    if intention["type"] == TaskTypeEnum.Undefied.value:
         person_report_topic_msg = {
                     "type": "common",
-                    "text": f"很抱歉，当前只支持{TaskTypeEnum.FaultReporting.value}。",
+                    "text": f"很抱歉，当前只支持{TaskTypeEnum.SanitationTreatment.value}、{TaskTypeEnum.FaultReporting.value}、{TaskTypeEnum.SecurityIncident.value}",
                     "success": False
                 }
         await update_task(task_id, mode=-1, solution=json.dumps([], ensure_ascii=False), report_engineer_id=report_engineer_id)
