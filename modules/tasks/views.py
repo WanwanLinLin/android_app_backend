@@ -10,8 +10,8 @@ from modules.agent.handle_task import receive_task_agent
 from . import schema
 from fastapi import APIRouter, File, Form, UploadFile, status
 from utils.common.schema import GeneticResponse
-from mybatisPlus.task_orm import create_task, update_task, save_task_image
-from mybatisPlus.work_order_task_orm import wo_save_task_image, wo_save_one_task
+from mybatisPlus.task_orm import create_task, update_task, save_task_image, get_task_info_by_id
+from mybatisPlus.work_order_task_orm import wo_save_task_image, wo_save_one_task, wo_get_task_info_by_id
 from utils.randomString import create_numbering
 from setting import config_data
 
@@ -54,3 +54,14 @@ async def _upload_image(
     if not await save_task_image(task_id, type, db_save_path):
         return GeneticResponse(code=400, msg="任务不存在!")
     return GeneticResponse()
+
+
+@router.post("/v1/task/detail")
+async def _get_task_detail(info: schema.GetTaskDetail):
+    # 创建任务
+    i = await get_task_info_by_id(info.task_id)
+    if not i: return GeneticResponse(code=400, msg="任务不存在。")
+    j = i.model_dump()
+    z = await wo_get_task_info_by_id(info.task_id)
+    j.update(z)
+    return GeneticResponse(data=j)

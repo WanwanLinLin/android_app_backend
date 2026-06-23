@@ -111,9 +111,12 @@ async def main():
             if pending_tasks:
                 for pt in pending_tasks:
                     if pt["task_id"] not in PENDING_TASKS:
-                        if (datetime.strptime(pt["start_time"], "%Y-%m-%d %H:%M:%S") - datetime.now()).total_seconds() / 60 < 5:
-                            PENDING_TASKS.append(pt["task_id"])
-                            asyncio.create_task(monitor_inspection_workflow(pt["task_id"]))
+                        try:
+                            if (datetime.strptime(pt["start_time"], "%Y-%m-%d %H:%M:%S") - datetime.now()).total_seconds() / 60 < 5:
+                                PENDING_TASKS.append(pt["task_id"])
+                                asyncio.create_task(monitor_inspection_workflow(pt["task_id"]))
+                        except Exception as e:
+                            LOG(f'任务 {pt["task_id"]} 报错：{e}', "DEBUG")
                 await asyncio.sleep(3)
             else:
                 await asyncio.sleep(5)

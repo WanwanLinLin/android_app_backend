@@ -36,6 +36,7 @@ class TaskDetail(BaseModel):
     photo_path: Union[str, None]
     location: Union[str, None]
     completed_photo_path: Union[str, None]
+    process_msg: Union[str, List, None]
     
     class Config:
         from_attributes = True
@@ -45,6 +46,11 @@ class TaskDetail(BaseModel):
     def get_exclude_engineer_id_list(cls, v, values):
         if not v: return []
         return json.loads(v, strict=False)
+    
+    @field_validator("process_msg")
+    def get_process_msg(cls, v, values):
+        if not v: return []
+        return v
 
 
 async def create_task(**kwargs):
@@ -121,6 +127,22 @@ async def get_task_info_by_id(task_id: str):
                 return TaskDetail.model_validate(task_info)
     return None
     
+
+async def add_process_msg_by_id(task_id: str, msg: str):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            task_info = await session.scalar(
+                select(HandleTaskRecord).filter_by(task_id=task_id)
+            )
+            if task_info:
+                if not task_info.process_msg:
+                    task_info.process_msg = [msg]
+                else:
+                    task_info.process_msg = task_info.process_msg + [msg]
+                session.add(task_info)
+                return 1
+    return 0
+
 
 async def add_engineer(**kwargs):
     kwargs["create_time"] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')

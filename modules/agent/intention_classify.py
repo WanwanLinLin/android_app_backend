@@ -79,11 +79,13 @@ async def order_floor(floor_ids: List, floor_name: List):
     question = f"""
 这是楼层名称列表：{floor_name}，
 对应的楼层id列表：{floor_ids}
-按照楼层的高度从上到下排序，返回排序后的楼层id列表，
+按照楼层的高度从高到低排序，返回排序后的楼层id列表，
 请返回以下格式的 JSON：
 {{
   "floor_ids": [排序正确的楼层id列表(int)]
 }}
+注意：
+1..楼层名称列表与对应的楼层id列表是按顺序一一对应的，请注意识别
 """
 
     llm_client = AsyncOpenAI(

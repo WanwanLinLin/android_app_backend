@@ -6,7 +6,7 @@ import asyncio
 from openai import AsyncOpenAI
 from datetime import datetime, timedelta
 from mybatisPlus.device_orm import get_device_detail_by_device_id, get_device_detail_by_engineer_id
-from mybatisPlus.task_orm import update_task, get_task_info_by_id, confirm_task
+from mybatisPlus.task_orm import update_task, get_task_info_by_id, confirm_task, add_process_msg_by_id
 from mybatisPlus.engineer_orm import get_engineer_by_id, list_all_engineer
 from mybatisPlus.work_order_task_orm import wo_update_save_one_task, wo_update_task_status
 from setting import config_data
@@ -25,6 +25,7 @@ async def receive_task_agent(topic: str, task_id: str, event_description: str, l
     """
     device_id: str 提出问题的人的设备id
     """
+    await add_process_msg_by_id(task_id, f"{datetime.now()} 设备 {device_id} 上报问题：{event_description}")
     r = redis.Redis(connection_pool=monitor_task_pool)
     engineers = (await list_all_engineer()).data
     report_engineer_id = (await get_device_detail_by_device_id(device_id=device_id)).id
@@ -42,6 +43,7 @@ async def receive_task_agent(topic: str, task_id: str, event_description: str, l
         await wo_update_task_status(task_id, -1)
         if await AsyncMqtt().publish_message(person_report_topic, json.dumps(person_report_topic_msg, ensure_ascii=False)):
             LOG(f"❌ 任务 {task_id} 无法向 {person_report_topic} 推送合适的解决方案.", "DEBUG")
+            await add_process_msg_by_id(task_id, f"{datetime.now()} 智能体无法生成合适的解决方案。")
     else:
         if intention["position"] == TaskTypeEnum.Undefied.value:
             # 需要用户说出详细地点？
@@ -51,47 +53,6 @@ async def receive_task_agent(topic: str, task_id: str, event_description: str, l
             r.setex(f"{task_id}_confirm_task_position", 60 * 60, intention["position"])
             asyncio.create_task(waiting_for_legal_position_and_picture(task_id, report_engineer_id, device_id, event_description, intention["type"]))
             return
-        # else:
-        #     json_str = await get_perfect_solution(event_description, (await get_device_detail_by_device_id(device_id=device_id)).location)
-        #     person_report_topic = f"task/{device_id}"
-        #     if "ids" in json_str and json_str["ids"] and json_str["ids"] != "null":
-        #         person_report_topic_msg = {
-        #             "type": "common",
-        #             "text": "已经成功创建工单并指派工程师解决问题。",
-        #             "success": True
-        #         }
-        #         engineer_msg = {
-        #             "type": "receive_task",
-        #             "text": json_str["solution"],
-        #             "task_id": task_id,
-        #             "status": "pending"
-        #         }
-        #         engineer_device_id = (await get_device_detail_by_engineer_id(json_str["ids"][0])).device_id
-        #         engineer_topic = f"task/{engineer_device_id}"
-        #         # 发给上报问题者
-        #         if await AsyncMqtt().publish_message(person_report_topic, json.dumps(person_report_topic_msg, ensure_ascii=False)):
-        #             LOG(f"✅ 任务 {task_id} 成功向问题提出者 {person_report_topic} 推送已经确认任务消息：{json_str}", "DEBUG")
-        #         # 发给解决方案给对应的工程师
-        #         if await AsyncMqtt().publish_message(engineer_topic, json.dumps(engineer_msg, ensure_ascii=False)):
-        #             LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送解决方案：{json_str}，正在等待工程师确认", "DEBUG")
-        #         await update_task(task_id, 0, solution=json_str, engineer_id=json_str["ids"][0], report_engineer_id=report_engineer_id)
-        #         r.setex(task_id, 60 * 60, "valid")
-        #         # 保存解决方案到工单数据库
-        #         await wo_save_one_task(task_id=task_id, title=json_str["title"], description=json_str["solution"],
-        #                                owner_id=json_str["ids"][0], task_type=intention["type"])
-        #         asyncio.create_task(monitor_task_agent(task_id, json_str["solution"], engineer_device_id, device_id))
-        #     else:
-        #         json_str["success"] = False
-        #         json_str["type"] = "create_task"
-        #         json_str["status"] = "error"
-        #         person_report_topic_msg = {
-        #             "type": "common",
-        #             "text": "很抱歉，无法找到合适的工程师处理问题，请你再次详细描述你的问题和地点，我会尝试给你输出的解决方案。",
-        #             "success": False
-        #         }
-        #         await update_task(task_id, mode=-1, solution=json.dumps(json_str, ensure_ascii=False), report_engineer_id=report_engineer_id)
-        #         if await AsyncMqtt().publish_message(person_report_topic, json.dumps(person_report_topic_msg, ensure_ascii=False)):
-        #             LOG(f"❌ 任务 {task_id} 无法向 {person_report_topic} 推送合适的解决方案.", "DEBUG")
 
 
 # 等待用户提供合规的地点后再创建任务
@@ -113,6 +74,7 @@ async def waiting_for_legal_position_and_picture(task_id: str, report_engineer_i
             # 发给解决方案给对应的工程师
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(reporter_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送消息：{reporter_msg}", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} 智能体: 我还需要确认具体位置，请补充楼栋、楼层或附近点位。")
             await asyncio.sleep(15)
     position = r.get(f"{task_id}_confirm_task_position")
     if position: event_description += f" 具体位置：{position}"
@@ -130,6 +92,7 @@ async def waiting_for_legal_position_and_picture(task_id: str, report_engineer_i
             engineer_topic = f"task/{report_device_id}"
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(reporter_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向reporter {engineer_topic} 推送消息：{reporter_msg}", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 收到，已识别到您反馈的问题。我需要一张现场照片来判断情况，请在 App 中上传。")
             await asyncio.sleep(15)
         else: break
     
@@ -143,10 +106,13 @@ async def waiting_for_legal_position_and_picture(task_id: str, report_engineer_i
         }
         engineer_msg = {
             "type": "receive_task",
-            "text": json_str["solution"],
+            "text": "您有一条新的现场处理任务：" + json_str["solution"] + "请您确认接受处理。",
+            # "text": json_str["solution"],
             "task_id": task_id,
             "status": "pending"
         }
+        await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 照片已收到。我正在结合现场位置和处理规范判断处理方式，并为您匹配合适人员。")
+        await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 您有一条新的现场处理任务：{json_str['title']}, 请您确认接受处理。")
         engineer_device_id = (await get_device_detail_by_engineer_id(json_str["ids"][0])).device_id
         engineer_topic = f"task/{engineer_device_id}"
         # 发给上报问题者
@@ -173,6 +139,7 @@ async def waiting_for_legal_position_and_picture(task_id: str, report_engineer_i
         await update_task(task_id, mode=-1, solution=json.dumps(json_str, ensure_ascii=False), report_engineer_id=report_engineer_id)
         if await AsyncMqtt().publish_message(person_report_topic, json.dumps(person_report_topic_msg, ensure_ascii=False)):
             LOG(f"❌ 任务 {task_id} 无法向 {person_report_topic} 推送合适的解决方案.", "DEBUG")
+            await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 很抱歉，无法找到合适的工程师处理问题，请你再次详细描述你的问题和地点，我会尝试给你输出的解决方案。")
 
 
 # 由工程师确认任务是否被接受
@@ -203,7 +170,8 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
             engineer_topic = f"task/{engineer_device_id}"
             # 发给解决方案给对应的工程师
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(engineer_msg, ensure_ascii=False)):
-                LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 重新推送解决方案消息：{engineer_msg}，正在等待工程师确认", "DEBUG")
+                LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送解决方案消息：{engineer_msg}，正在等待工程师确认", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 成功向工程师 {engineer_topic} 推送解决方案，正在等待工程师确认。")
             await asyncio.sleep(30)
         elif task_info.status == 1:
             engineer_topic = f"task/{engineer_device_id}"
@@ -223,7 +191,9 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
                 await update_task(task_id, mode=2, status=2)
                 await wo_update_task_status(task_id, 2)
                 if await AsyncMqtt().publish_message(engineer_topic, json.dumps(push_msg, ensure_ascii=False)):
-                    LOG(f"✅ 任务 {task_id} 成功向 {engineer_topic} 推送消息：{push_msg}", "DEBUG")   
+                    LOG(f"✅ 任务 {task_id} 成功向 {engineer_topic} 推送消息：{push_msg}", "DEBUG")
+                    await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 已检测到您到达现场，工单状态已更新为处理中。请按现场规范处理。")   
+                await asyncio.sleep(60)
             else:
                 engineer_msg = {
                     "type": "start_task",
@@ -235,7 +205,8 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
                 # 询问师傅是否到达现场并开始工作?
                 if await AsyncMqtt().publish_message(engineer_topic, json.dumps(engineer_msg, ensure_ascii=False)):
                     LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送消息：{engineer_msg}，正在等待工程师确认", "DEBUG")
-            await asyncio.sleep(30)
+                    await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 系统还未检测到您到达现场，请确认是否正在前往{position}。")  
+                await asyncio.sleep(30)
         elif task_info.status == 2:
             engineer_msg = {
                 "type": "finish_task",
@@ -248,6 +219,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
             # 询问师傅是否到达现场并开始工作?
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(engineer_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送消息：{engineer_msg}，正在等待工程师确认", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 请问该任务是否已处理完成？如已完成，请回复完成。")  
             await asyncio.sleep(30)
         elif task_info.status == 3:
             if not task_info.completed_photo_path:
@@ -262,6 +234,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
                 engineer_topic = f"task/{engineer_device_id}"
                 if await AsyncMqtt().publish_message(engineer_topic, json.dumps(engineer_msg, ensure_ascii=False)):
                     LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送消息：{engineer_msg}", "DEBUG")
+                    await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 请在APP上传故障处理完成照片。")  
             await asyncio.sleep(20)
         elif task_info.status == 4:
             push_msg = {
@@ -272,6 +245,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
                     }
             if await AsyncMqtt().publish_message(f"task/{report_device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向 task/{report_device_id} 推送消息：{push_msg}", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant->reporter：您反馈的 {title} 已处理完成，工单已闭环。感谢您的反馈。")  
             engineer_topic = f"task/{engineer_device_id}"
             push_msg2 = {
                         "type": "common",
@@ -281,6 +255,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
                     }
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(push_msg2, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向 {engineer_topic} 推送消息：{push_msg2}", "DEBUG")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant->worker：{title} 已处理完成，工单已闭环。师傅您辛苦了。")  
             return
     
     push_msg = {
@@ -291,6 +266,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
             }
     if await AsyncMqtt().publish_message(f"task/{report_device_id}", json.dumps(push_msg, ensure_ascii=False)):
         LOG(f"✅ 任务 {task_id} 成功向 task/{report_device_id} 推送消息：{push_msg}", "DEBUG")
+        await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 很抱歉，任务执行失败了！")  
     await update_task(task_id, mode=2, status=-1)
     await wo_update_task_status(task_id, -1)
     return
@@ -343,6 +319,8 @@ class MonitorTaskWorkflow:
             await wo_update_task_status(self.task_id, 1)
             if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+                await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")  
+                await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 已为您创建工单，请前往{r.get(f"{self.task_id}_confirm_task_position")}。到达现场后我会自动核验位置。')  
                 
             current_task_info = await get_task_info_by_id(self.task_id)
             nickname = (await get_engineer_by_id(current_task_info.engineer_id)).nickname
@@ -357,6 +335,7 @@ class MonitorTaskWorkflow:
             await wo_update_task_status(self.task_id, 1)
             if await AsyncMqtt().publish_message(f"task/{current_task_info.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{current_task_info.device_id} 推送消息：{push_msg}", "DEBUG")
+                await add_process_msg_by_id(self.task_id, f"{datetime.now()} Reporter：已安排{nickname}处理，工单已创建。当前状态：前往中。")  
         else:
             push_msg = {
                 "type": "common",
@@ -367,6 +346,7 @@ class MonitorTaskWorkflow:
             await update_task(self.task_id, mode=3)
             if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+                await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 未收到确认信息，系统稍后将后发起重新确认请求。')  
     
     async def start_task(self, confirm_msg: str):
         sys_prompt = f"""
@@ -412,7 +392,9 @@ class MonitorTaskWorkflow:
                 await update_task(self.task_id, mode=2, status=2)
                 await wo_update_task_status(self.task_id, 2)
                 if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
-                    LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")     
+                    LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+                    await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")  
+                    await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 已检测到您到达现场，工单状态已更新为处理中。请按现场规范处理。')       
             else:
                 push_msg = {
                     "type": "common",
@@ -423,6 +405,8 @@ class MonitorTaskWorkflow:
                 await update_task(self.task_id, mode=3)
                 if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                     LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG") 
+                    await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")
+                    await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 工程师还未到达现场，系统稍后将查询最新进度。')
         else:
             push_msg = {
                 "type": "common",
@@ -433,6 +417,8 @@ class MonitorTaskWorkflow:
             await update_task(self.task_id, mode=3)
             if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")   
+                await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")
+                await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 工程师还未到达现场，系统稍后将查询最新进度。')
         
     async def finish_task(self, confirm_msg: str):
         sys_prompt = f"""
@@ -475,21 +461,26 @@ class MonitorTaskWorkflow:
             await wo_update_task_status(self.task_id, 3)
             if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")    
+                await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")
+                await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 收到完成反馈。请在 App 中上传处理后的现场照片，用于关闭工单。')
         else:
             push_msg = {
                 "type": "common",
-                "msg": "任务还未完成，系统将在30秒后发起重新查询进度。",
+                "msg": "任务还未完成，系统将在稍后发起重新查询进度。",
                 "status": "retry",
                 "task_id": self.task_id
             }
             await update_task(self.task_id, mode=3)
             if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {self.task_id} 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")   
+                await add_process_msg_by_id(self.task_id, f"{datetime.now()} Worker：{confirm_msg}")
+                await add_process_msg_by_id(self.task_id, f'{datetime.now()} Assistant: 任务还未完成，系统将在稍后发起重新查询进度。')
     
     async def confirm_task_position(self, confirm_msg: str):
         r = redis.Redis(connection_pool=monitor_task_pool)
         res = await is_legal_position(confirm_msg)
         if res["legal"]:
             r.setex(f"{self.task_id}_confirm_task_position", 60 * 60, res["position"])
+            await add_process_msg_by_id(self.task_id, f"{datetime.now()} reporter: 确认位置：{res['position']}")  
         return
             

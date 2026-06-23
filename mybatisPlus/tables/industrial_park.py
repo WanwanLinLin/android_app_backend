@@ -1,7 +1,7 @@
 # -*- coding：utf-8 -*-
 from .sqlcli import Base
 from sqlalchemy.orm import relationship
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, Float, func
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Text, Float, func
 from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime
 
@@ -35,6 +35,7 @@ class HandleTaskRecord(Base):
     update_time = Column(String(50), comment="更新时间", default=None)
     photo_path = Column(String(500), default="")
     completed_photo_path = Column(String(500), default="")
+    process_msg = Column(JSON, default=[], nullable=True, comment="任务处理时产生的中间消息")
     is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
     
 

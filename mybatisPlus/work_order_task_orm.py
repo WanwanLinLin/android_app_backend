@@ -9,6 +9,22 @@ from .tables.sqlcli2 import WorkOrderAsyncSessionLocal
 from datetime import datetime
 
 
+class _TaskDetail(BaseModel):
+    title: Union[str, None]
+    description: Union[str, None]
+    assignee_ids: Union[str, List, None]
+    task_type: Union[str, None]
+    
+    class Config:
+        from_attributes = True
+        protected_namespaces = ()
+        
+    @field_validator("assignee_ids")
+    def get_assignee_ids(cls, v, values):
+        if not v: return []
+        return json.loads(v, strict=False)
+
+
 async def wo_save_one_task(**kwargs):
     async with WorkOrderAsyncSessionLocal() as session:
         async with session.begin():
@@ -80,3 +96,14 @@ async def wo_update_task_status(task_id: str, status: int):
                 session.add(task_info)
                 return 1
     return 0
+
+
+async def wo_get_task_info_by_id(task_id: str):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            task_info = await session.scalar(
+                select(Task).filter_by(task_id=task_id)
+            )
+            if task_info:
+                return _TaskDetail.model_validate(task_info).model_dump()
+    return None
