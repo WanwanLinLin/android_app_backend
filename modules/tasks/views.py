@@ -7,11 +7,13 @@ import aiohttp
 import asyncio
 
 from modules.agent.handle_task import receive_task_agent
+from modules.agent.handle_task import MonitorTaskWorkflow
 from . import schema
 from fastapi import APIRouter, File, Form, UploadFile, status
 from utils.common.schema import GeneticResponse
-from mybatisPlus.task_orm import create_task, update_task, save_task_image, get_task_info_by_id
-from mybatisPlus.work_order_task_orm import wo_save_task_image, wo_save_one_task, wo_get_task_info_by_id
+from mybatisPlus.task_orm import create_task, get_all_pending_task_list, update_task, save_task_image, get_task_info_by_id
+from mybatisPlus.work_order_task_orm import (wo_save_task_image, wo_save_one_task, wo_get_task_info_by_id,
+                                             wo_get_task_list_by_device_id)
 from utils.randomString import create_numbering
 from setting import config_data
 
@@ -65,3 +67,19 @@ async def _get_task_detail(info: schema.GetTaskDetail):
     z = await wo_get_task_info_by_id(info.task_id)
     j.update(z)
     return GeneticResponse(data=j)
+
+
+@router.post("/v1/task/pendingList")
+async def _get_pending_task_list(info: schema.GetTaskList):
+    # 创建任务
+    d = await wo_get_task_list_by_device_id(info.device_id)
+    if not d: return GeneticResponse(data=d)
+    e = await get_all_pending_task_list(d)
+    return GeneticResponse(data=e)
+
+
+@router.post("/v1/task/submit")
+async def _submit_msg(info: schema.SubmitTaskMsgModel):
+    res = await MonitorTaskWorkflow(info.task_id, info.device_id).update_task_status_by_api(info.event_description)
+    if not res: return GeneticResponse(code=400, msg="该任务未在处理流程中。")
+    return GeneticResponse(msg="任务状态更新成功")

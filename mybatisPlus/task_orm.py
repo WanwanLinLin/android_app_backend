@@ -53,6 +53,19 @@ class TaskDetail(BaseModel):
         return v
 
 
+class _TaskList(BaseModel):
+    id: Union[int, None]
+    task_id: Union[str, None]
+    event_description: Union[str, None]
+    status: Union[int, None]
+    create_time: Union[str, None]
+    update_time: Union[str, None]
+    
+    class Config:
+        from_attributes = True
+        protected_namespaces = ()
+
+
 async def create_task(**kwargs):
     kwargs["create_time"] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
     kwargs["update_time"] = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
@@ -171,3 +184,20 @@ async def save_task_image(task_id: str, type: str, save_path: str):
                     session.add(task_info)
                     return 1
     return 0
+
+
+async def get_all_pending_task_list(task_id_list: List[str]):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            task_records = []
+            # 批量查询：task_id 在传入列表中，且未删除
+            stmt = select(HandleTaskRecord).where(
+                HandleTaskRecord.task_id.in_(task_id_list),
+                HandleTaskRecord.is_delete == False
+            )
+            # 执行查询
+            result = await session.execute(stmt)
+            # 获取所有匹配记录列表
+            _task_records = result.scalars().all()
+            task_records = [_TaskList.model_validate(t).model_dump() for t in _task_records]
+            return task_records

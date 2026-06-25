@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from mybatisPlus.device_orm import get_device_detail_by_device_id, get_device_detail_by_engineer_id
 from mybatisPlus.task_orm import update_task, get_task_info_by_id, confirm_task, add_process_msg_by_id
 from mybatisPlus.engineer_orm import get_engineer_by_id, list_all_engineer
-from mybatisPlus.work_order_task_orm import wo_update_save_one_task, wo_update_task_status
+from mybatisPlus.work_order_task_orm import wo_update_save_one_task, wo_update_task_status, wo_get_current_status
 from setting import config_data
 from utils.tools import extract_json_from_response
 from utils.async_mqtt_client import AsyncMqtt
@@ -339,7 +339,7 @@ class MonitorTaskWorkflow:
         else:
             push_msg = {
                 "type": "common",
-                "msg": "未收到确认信息，系统稍后将后发起重新确认请求。",
+                "msg": "未收到确认任务信息，系统稍后将后发起重新确认请求。",
                 "status": "retry",
                 "task_id": self.task_id
             }
@@ -484,3 +484,14 @@ class MonitorTaskWorkflow:
             await add_process_msg_by_id(self.task_id, f"{datetime.now()} reporter: 确认位置：{res['position']}")  
         return
             
+    async def update_task_status_by_api(self, confirm_msg: str):
+        current_status = await wo_get_current_status(self.task_id)
+        if current_status == -1 or current_status == 3 or current_status == 4: return 0
+        # if current_status == 0:
+        #     await self.receive_task(confirm_msg)
+        if current_status == 1:
+            await self.start_task(confirm_msg)
+        elif current_status == 2:
+            await self.finish_task(confirm_msg)
+        
+        return 1

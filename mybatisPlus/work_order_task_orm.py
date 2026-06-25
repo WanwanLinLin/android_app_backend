@@ -4,7 +4,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
 from utils.common.schema import GeneticResponse
-from .tables.work_order import Task
+from .tables.work_order import Device2UserInfo, Task
 from .tables.sqlcli2 import WorkOrderAsyncSessionLocal
 from datetime import datetime
 
@@ -107,3 +107,35 @@ async def wo_get_task_info_by_id(task_id: str):
             if task_info:
                 return _TaskDetail.model_validate(task_info).model_dump()
     return None
+
+
+async def wo_get_task_list_by_device_id(device_id: str):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            # 找到工程师id:
+            engineer_info = await session.scalar(
+                select(Device2UserInfo).filter_by(device_id=device_id)
+            )
+            if not engineer_info: return None
+            engineer_id = engineer_info.engineer_id
+            task_ids = []
+            task_info = await session.scalars(
+                select(Task).filter(Task.status != -1, Task.status != 4)
+                # select(Task).filter(Task.status != -1)
+            )
+            for t in task_info:
+                if t.assignee_ids:
+                    if engineer_id in json.loads(t.assignee_ids, strict=False):
+                        task_ids.append(t.task_id)
+            return task_ids
+    return None
+
+
+async def wo_get_current_status(task_id: str):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            task_info = await session.scalar(
+                select(Task).filter_by(task_id=task_id)
+            )
+            return task_info.status
+    return -1
