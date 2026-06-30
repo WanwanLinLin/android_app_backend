@@ -149,6 +149,73 @@ async def determine_inspection_way(floor_ids: List, floor_name: List,
     return json.loads(_json_str, strict=False)
 
 
+async def mqtt_intention_classification(question: str):
+    sys_prompt = f"""
+判断用户的意图，返回以下对应的意图编号：
+创建新任务 --> 0；
+确认到达现场 --> 1；
+确认完成任务 --> 2；
+其它 --> 3；
+请返回以下格式的 JSON：
+{{
+  "intention": <意图编号>
+}}
+"""
+
+    llm_client = AsyncOpenAI(
+        base_url=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["base_url"],
+        api_key=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["apikey"],
+        timeout=60,
+        max_retries=3
+    )
+    completion = await llm_client.chat.completions.create(
+        model=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["model"],
+        messages=[
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": question},
+        ],
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 20, "min_p": 0},
+        temperature=0.6,
+        top_p=0.95
+    )
+    response = completion.choices[0].message.content
+    _json_str = extract_json_from_response(response)
+    return json.loads(_json_str, strict=False)
+
+
+async def mqtt_get_correct_number(question: str):
+    sys_prompt = f"""
+根据用户的输入转成相应的序号，规则如下：
+第一个 --> 1
+第十二个 --> 12
+其它无关内容 --> -1
+请返回以下格式的 JSON：
+{{
+  "number": <序号>
+}}
+"""
+
+    llm_client = AsyncOpenAI(
+        base_url=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["base_url"],
+        api_key=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["apikey"],
+        timeout=60,
+        max_retries=3
+    )
+    completion = await llm_client.chat.completions.create(
+        model=config_data["THIRD_PARTY_SERVICES"][0]["generic_llm"]["Qwen3-32B-AWQ"]["model"],
+        messages=[
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": question},
+        ],
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_k": 20, "min_p": 0},
+        temperature=0.6,
+        top_p=0.95
+    )
+    response = completion.choices[0].message.content
+    _json_str = extract_json_from_response(response)
+    return json.loads(_json_str, strict=False)
+
+
 if __name__ == "__main__":
     import asyncio
     # print(asyncio.run(get_user_intention("你爱我吗？")))

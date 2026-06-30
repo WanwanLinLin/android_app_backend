@@ -1,22 +1,25 @@
 # -*- coding：utf-8 -*-
 import time
 import json
+import uuid
 import redis
+import aiohttp
 import asyncio
 from openai import AsyncOpenAI
 from datetime import datetime, timedelta
 from mybatisPlus.device_orm import get_device_detail_by_device_id, get_device_detail_by_engineer_id
-from mybatisPlus.task_orm import update_task, get_task_info_by_id, confirm_task, add_process_msg_by_id
+from mybatisPlus.task_orm import create_task, update_task, get_task_info_by_id, confirm_task, add_process_msg_by_id
 from mybatisPlus.engineer_orm import get_engineer_by_id, list_all_engineer
-from mybatisPlus.work_order_task_orm import wo_update_save_one_task, wo_update_task_status, wo_get_current_status
+from mybatisPlus.work_order_task_orm import (wo_save_one_task, wo_update_save_one_task, wo_update_task_status, wo_get_current_status, wo_get_task_list_by_device_id_2)
 from setting import config_data
+from utils.randomString import create_numbering
 from utils.tools import extract_json_from_response
 from utils.async_mqtt_client import AsyncMqtt
 from utils.getLogs import LOG
 from utils.common.redis_cli import monitor_task_pool
 from utils.common.enumTaskType import TaskTypeEnum
 from .make_solution import get_perfect_solution
-from .intention_classify import get_user_intention, is_legal_position
+from .intention_classify import get_user_intention, is_legal_position, mqtt_get_correct_number, mqtt_intention_classification
 from geopy.distance import geodesic
 
 
@@ -74,7 +77,7 @@ async def waiting_for_legal_position_and_picture(task_id: str, report_engineer_i
             # 发给解决方案给对应的工程师
             if await AsyncMqtt().publish_message(engineer_topic, json.dumps(reporter_msg, ensure_ascii=False)):
                 LOG(f"✅ 任务 {task_id} 成功向工程师 {engineer_topic} 推送消息：{reporter_msg}", "DEBUG")
-                await add_process_msg_by_id(task_id, f"{datetime.now()} 智能体: 我还需要确认具体位置，请补充楼栋、楼层或附近点位。")
+                await add_process_msg_by_id(task_id, f"{datetime.now()} Assistant: 我还需要确认具体位置，请补充楼栋、楼层或附近点位。")
             await asyncio.sleep(15)
     position = r.get(f"{task_id}_confirm_task_position")
     if position: event_description += f" 具体位置：{position}"
@@ -180,7 +183,7 @@ async def monitor_task_agent(task_id: str, solution: str, engineer_device_id: st
             _task_location = (await get_task_info_by_id(task_id)).location
             dist = geodesic((_engineer_location.split(";")[0], _engineer_location.split(";")[1]),
                             (_task_location.split(";")[0], _task_location.split(";")[1])).meters
-            if dist < 100:
+            if dist < 1000:
                 push_msg = {
                             "type": "common",
                             "ack": True,
@@ -381,7 +384,7 @@ class MonitorTaskWorkflow:
             _task_location = (await get_task_info_by_id(self.task_id)).location
             dist = geodesic((_engineer_location.split(";")[0], _engineer_location.split(";")[1]),
                             (_task_location.split(";")[0], _task_location.split(";")[1])).meters
-            if dist < 100:
+            if dist < 1000:
                 push_msg = {
                             "type": "common",
                             "ack": True,
@@ -495,3 +498,118 @@ class MonitorTaskWorkflow:
             await self.finish_task(confirm_msg)
         
         return 1
+    
+    async def intention_classification(self, confirm_msg: str, location: str):
+        res = await mqtt_intention_classification(confirm_msg)
+        if res["intention"] == 0:
+            # 创建任务
+            topic = f"task/{str(uuid.uuid4())}"
+            task_id = f"{str(int(time.time()))}_{create_numbering(10)}"
+            # 创建一条任务记录
+            await create_task(topic=topic, task_id=task_id, device_id=self.device_id,
+                            location=location, event_description=confirm_msg)
+            await wo_save_one_task(task_id=task_id, title="")
+            asyncio.create_task(receive_task_agent(topic, task_id, confirm_msg, location, self.device_id))
+        elif res["intention"] == 1:
+            pending_task = await wo_get_task_list_by_device_id_2(self.device_id)
+            if len(pending_task) == 0:
+                push_msg = {
+                    "type": "common",
+                    "text": "抱歉当前没有进行中的任务。",
+                    "status": "finish",
+                    "task_id": None
+                }
+                if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                    LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+            elif len(pending_task) == 1:
+                self.task_id = pending_task[0]["task_id"]
+                await self.start_task(confirm_msg)
+            else:
+                r = redis.Redis(connection_pool=monitor_task_pool)
+                # 创建多轮任务对话确认是哪个任务？
+                text = "以下是进行中的任务列表：\n"
+                for pt in pending_task:
+                    text = text + pt["title"] + "\n"
+                text += "请确认你要更新的是哪一个任务的状态？只要回复第几个即可。"
+                push_msg = {
+                    "type": "start_multi_task",
+                    "text": text,
+                    "status": "pending",
+                    "task_id": None
+                }
+                r.setex(f"start_multi_task_{self.device_id}", 5 * 60, json.dumps(pending_task, ensure_ascii=False))
+                if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                    LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+        elif res["intention"] == 2:
+            pending_task = await wo_get_task_list_by_device_id_2(self.device_id)
+            if len(pending_task) == 0:
+                push_msg = {
+                    "type": "common",
+                    "text": "抱歉当前没有进行中的任务。",
+                    "status": "finish",
+                    "task_id": None
+                }
+                if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                    LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+            elif len(pending_task) == 1:
+                self.task_id = pending_task[0]["task_id"]
+                await self.finish_task(confirm_msg)
+            else:
+                r = redis.Redis(connection_pool=monitor_task_pool)
+                # 创建多轮任务对话确认是哪个任务？
+                text = "以下是进行中的任务列表：\n"
+                for pt in pending_task:
+                    text = text + pt["title"] + "\n"
+                text += "请确认你要更新的是哪一个任务的状态？只要回复第几个即可。"
+                push_msg = {
+                    "type": "finish_multi_task",
+                    "text": text,
+                    "status": "pending",
+                    "task_id": None
+                }
+                r.setex(f"finish_multi_task_{self.device_id}", 5 * 60, json.dumps(pending_task, ensure_ascii=False))
+                if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                    LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+        else:
+            push_msg = {
+                "type": "common",
+                "text": "很抱歉，我无法识别该意图",
+                "status": "finish",
+                "task_id": None
+            }
+            if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+    
+    async def start_multi_task(self, confirm_msg: str):
+        r = redis.Redis(connection_pool=monitor_task_pool)
+        pending_task = json.loads(r.get(f"start_multi_task_{self.device_id}"))
+        res = await mqtt_get_correct_number(confirm_msg)
+        if res < 0 or (res > len(pending_task)):
+            push_msg = {
+                "type": "common",
+                "text": "很抱歉，我无法识别该意图",
+                "status": "finish",
+                "task_id": None
+            }
+            if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+        else:
+            self.task_id = pending_task[res - 1]["task_id"]
+            await self.start_task(confirm_msg)
+    
+    async def finish_multi_task(self, confirm_msg: str):
+        r = redis.Redis(connection_pool=monitor_task_pool)
+        pending_task = json.loads(r.get(f"start_multi_task_{self.device_id}"))
+        res = await mqtt_get_correct_number(confirm_msg)
+        if res < 0 or (res > len(pending_task)):
+            push_msg = {
+                "type": "common",
+                "text": "很抱歉，我无法识别该意图",
+                "status": "finish",
+                "task_id": None
+            }
+            if await AsyncMqtt().publish_message(f"task/{self.device_id}", json.dumps(push_msg, ensure_ascii=False)):
+                LOG(f"✅ 成功向 task/{self.device_id} 推送消息：{push_msg}", "DEBUG")
+        else:
+            self.task_id = pending_task[res - 1]["task_id"]
+            await self.finish_task(confirm_msg)

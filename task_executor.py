@@ -39,6 +39,13 @@ async def wait_for_task_msg():
                     await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).start_task(task_msg["text"])
                 elif task_msg["type"] == "finish_task":
                     await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).finish_task(task_msg["text"])
+                elif task_msg["type"] == "start_multi_task":
+                    ...
+                elif task_msg["type"] == "finish_multi_task":
+                    ...
+                else:
+                    # 进入意图识别阶段
+                    await MonitorTaskWorkflow(task_msg["task_id"], task_msg["device_id"]).intention_classification(task_msg["text"], task_msg["location"])
             except Exception as e:
                 LOG(f"❌ 任务 {task_msg} 处理失败：{str(e)}", "DEBUG")
         else:

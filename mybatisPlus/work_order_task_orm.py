@@ -25,6 +25,16 @@ class _TaskDetail(BaseModel):
         return json.loads(v, strict=False)
 
 
+class _TaskDetail2(BaseModel):
+    task_id: Union[str, None] 
+    title: Union[str, None]
+    task_type: Union[str, None]
+    
+    class Config:
+        from_attributes = True
+        protected_namespaces = ()
+
+
 async def wo_save_one_task(**kwargs):
     async with WorkOrderAsyncSessionLocal() as session:
         async with session.begin():
@@ -128,6 +138,28 @@ async def wo_get_task_list_by_device_id(device_id: str):
                     if engineer_id in json.loads(t.assignee_ids, strict=False):
                         task_ids.append(t.task_id)
             return task_ids
+    return None
+
+
+async def wo_get_task_list_by_device_id_2(device_id: str):
+    async with WorkOrderAsyncSessionLocal() as session:
+        async with session.begin():
+            # 找到工程师id:
+            engineer_info = await session.scalar(
+                select(Device2UserInfo).filter_by(device_id=device_id)
+            )
+            if not engineer_info: return None
+            engineer_id = engineer_info.engineer_id
+            task_list = []
+            task_info = await session.scalars(
+                select(Task).filter(Task.status != -1, Task.status != 4)
+                # select(Task).filter(Task.status != -1)
+            )
+            for t in task_info:
+                if t.assignee_ids:
+                    if engineer_id in json.loads(t.assignee_ids, strict=False):
+                        task_list.append(_TaskDetail2.model_validate(t).model_dump())
+            return task_list
     return None
 
 
