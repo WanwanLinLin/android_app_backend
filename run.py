@@ -9,6 +9,8 @@ from modules.tasks.views import router as task_router
 from modules.device.views import router as device_router
 from modules.user.views import router as user_router
 from modules.inspection.views import router as inspection_router
+from utils.apierror import JwtAuthError
+from utils.common.schema import GeneticResponse
 
 app = FastAPI()
 
@@ -24,6 +26,15 @@ app.include_router(task_router)
 app.include_router(device_router)
 app.include_router(user_router)
 app.include_router(inspection_router)
+
+
+
+@app.exception_handler(JwtAuthError)
+async def global_exception_handler(request, exc: Exception):
+    return JSONResponse(
+            status_code=200,
+            content={"code": 401, "msg": "Not authenticated", "data": None}
+        )
 
 
 # 处理所有异常

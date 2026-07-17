@@ -7,6 +7,7 @@ from .sqlcli2 import Base_Work_Order
 def beijing_now():
     return datetime.now(timezone.utc) + timedelta(hours=8)
 
+
 class User(Base_Work_Order):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
