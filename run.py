@@ -9,6 +9,7 @@ from modules.tasks.views import router as task_router
 from modules.device.views import router as device_router
 from modules.user.views import router as user_router
 from modules.inspection.views import router as inspection_router
+from modules.tts.views import router as tts_router
 from utils.apierror import JwtAuthError
 from utils.common.schema import GeneticResponse
 
@@ -26,6 +27,7 @@ app.include_router(task_router)
 app.include_router(device_router)
 app.include_router(user_router)
 app.include_router(inspection_router)
+app.include_router(tts_router)
 
 
 

@@ -49,4 +49,18 @@ class EngineerInfo(Base):
     update_time = Column(String(50), comment="更新时间", default=None)
     is_free = Column(Boolean, default=True, comment="是否空闲")
     is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
+    
+
+class TTSFactories(Base):
+    __tablename__ = "TTSFactories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(30), index=True, comment="接口类型：generic|openai")
+    url = Column(String(256), default=None, comment="接口地址")
+    desc = Column(String(256), default=None, comment="简短的音色描述")
+    tag = Column(String(64), index=True, comment="音色标签")
+    voice = Column(String(128), index=True, comment="音色名称")
+    apikey = Column(String(128), comment="请求密钥")
+    create_time = Column(String(30), comment="创建时间")
+    update_time = Column(String(30), comment="更新时间")
 
