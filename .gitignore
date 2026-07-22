@@ -3,3 +3,4 @@ __pycache__
 config.yaml
 test/*
 mosquitto-dev
+3rd
