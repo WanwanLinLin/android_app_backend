@@ -11,6 +11,7 @@ import aiohttp
 import asyncio
 import aiofiles
 import importlib
+import websockets
 from . import schema
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, UploadFile, Form, File
@@ -19,7 +20,7 @@ from mybatisPlus.tts_orm import (get_voice_list, add_one_voice, get_one_voice)
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
-                                                  recognize_asr_file, get_llm_result, get_tts_path_monitor)
+                                                  recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
 from utils.getLogs import LOG
 from setting import config_data
 
@@ -29,7 +30,10 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 @router.websocket("/v1/stream/recognition")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    conn = ConnectionObjectCustomAec3("manbaout", silence_threshold_ms=1500)
+    prompt = await websocket.receive_json()
+    LOG(f"start with client config: {prompt}", "DEBUG")
+    conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
+                                      vad_min_thre=prompt.get("vad_min_thre", 0.9), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
     conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
     conn.frv.init(
         config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.param",
@@ -59,7 +63,7 @@ async def websocket_endpoint(websocket: WebSocket):
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
-    
+    conn.chunk_asr_client = await websockets.connect("ws://127.0.0.1:18113/v1/stream/chunk")
     try:
         await asyncio.gather(
             receive_audio_data(websocket, conn),
@@ -68,15 +72,18 @@ async def websocket_endpoint(websocket: WebSocket):
             recognize_asr_file(websocket, conn),
             get_llm_result(websocket, conn),
             get_tts_path_monitor(websocket, conn),
+            send_asr_chunk(websocket, conn),
         )
     except WebSocketDisconnect as e:
         conn.pa = None
         conn.frv = None
+        await conn.chunk_asr_client.close()
         conn = None
         print(f"manba out {e}")
     
-    except RecursionError as e:
+    except Exception as e:
         conn.pa = None
         conn.frv = None
+        await conn.chunk_asr_client.close()
         conn = None
         LOG(f"客户端连接异常断开: {e}", "DEBUG")

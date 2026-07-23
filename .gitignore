@@ -5,3 +5,5 @@ test/*
 mosquitto-dev
 3rd
 logs
+models
+*.onnx
