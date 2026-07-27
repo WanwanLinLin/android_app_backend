@@ -9,4 +9,4 @@ with open(ailhs_yaml_path, 'r') as file:
 # aec config
 FRAME_MAGIC = b"MICK"
 FRAME_HEADER_SIZE = 18  # 4 + 4 + 4 + 4 + 2
-AEC_DELAY_OFFSET = 15
+AEC_DELAY_OFFSET = 8

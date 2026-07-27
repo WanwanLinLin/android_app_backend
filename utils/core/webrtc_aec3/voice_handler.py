@@ -100,6 +100,7 @@ class ConnectionObjectCustomAec3:
         self.curren_tts_file_path = ""
         self.status = 0  # 0:silence 1:playing
         self.frame_size = 320
+        self.global_config = {}
 
         # asr
         self.all_cache = {}
@@ -148,7 +149,7 @@ class ConnectionObjectCustomAec3:
         self.tts_text_queue = Queue()
         self.tts_pending_queue = deque()
         self.dialogue_history = []
-        self.punctuation_separator = ['，', '。', '：', '！', '、', '。\n\n', '。\n', '?', '？', '。', "？"]
+        self.punctuation_separator = ['，', '。', '：', '！', '、', '。\n\n', '。\n', '?', '？', '。', "？", ","]
         self.llm_engine = None
         self.tts_engine = None
         self.asr_engine = None
@@ -165,38 +166,39 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
     nums = 0
     while True:
         data = await websocket.receive_bytes()
+        conn.audio_chunk_queue.put((data, 1))
+        # # ---- Auto-detect framed protocol on first packet ----
+        # if not conn.use_framed_protocol and data[:4] == FRAME_MAGIC:
+        #     conn.use_framed_protocol = True
+        #     LOG("[INFO] Detected framed (MICK) protocol from client", "DEBUG")
 
-        # ---- Auto-detect framed protocol on first packet ----
-        if not conn.use_framed_protocol and data[:4] == FRAME_MAGIC:
-            conn.use_framed_protocol = True
-            LOG("[INFO] Detected framed (MICK) protocol from client", "DEBUG")
+        # if conn.use_framed_protocol:
+        #     # ---- Framed protocol: parse header, extract metadata ----
+        #     conn.framed_partial += data
 
-        if conn.use_framed_protocol:
-            # ---- Framed protocol: parse header, extract metadata ----
-            conn.framed_partial += data
+        #     # while len(conn.framed_partial) >= FRAME_HEADER_SIZE:
+        #     if 1:
+        #         # Parse header
+        #         magic, timestamp_ms, last_played_seq, seq, audio_len = struct.unpack_from(
+        #             ">4sIIIH", conn.framed_partial, 0
+        #         )
+        #         print(f"last_played_seq is {last_played_seq}")
+        #         if magic != FRAME_MAGIC:
+        #             # Corrupted — skip one byte and retry
+        #             conn.framed_partial = conn.framed_partial[1:]
+        #             continue
 
-            # while len(conn.framed_partial) >= FRAME_HEADER_SIZE:
-            if 1:
-                # Parse header
-                magic, timestamp_ms, last_played_seq, seq, audio_len = struct.unpack_from(
-                    ">4sIIIH", conn.framed_partial, 0
-                )
-                if magic != FRAME_MAGIC:
-                    # Corrupted — skip one byte and retry
-                    conn.framed_partial = conn.framed_partial[1:]
-                    continue
+        #         total_len = FRAME_HEADER_SIZE + audio_len
+        #         if len(conn.framed_partial) < total_len:
+        #             break  # wait for more data
 
-                total_len = FRAME_HEADER_SIZE + audio_len
-                if len(conn.framed_partial) < total_len:
-                    break  # wait for more data
-
-                # Extract audio and metadata
-                audio_data = conn.framed_partial[FRAME_HEADER_SIZE:total_len]
-                conn.framed_partial = conn.framed_partial[total_len:]
-                # nums += 1
-                # if nums % 50 == 0:
-                #     print("last_played_seq is ", last_played_seq)
-                conn.audio_chunk_queue.put((audio_data, last_played_seq))
+        #         # Extract audio and metadata
+        #         audio_data = conn.framed_partial[FRAME_HEADER_SIZE:total_len]
+        #         conn.framed_partial = conn.framed_partial[total_len:]
+        #         # nums += 1
+        #         # if nums % 50 == 0:
+        #         #     print("last_played_seq is ", last_played_seq)
+        #         conn.audio_chunk_queue.put((audio_data, last_played_seq))
 
 
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -283,17 +285,19 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                     and len(conn.far_end_buffer) > 0
                 )
 
-                if try_aligned_aec:
+                # if try_aligned_aec:
+                if 1:
                     # ---- Aligned AEC: look up far-end by last_played_seq ----
-                    far_end_audio = _get_aligned_far_end(conn, last_played_seq)
+                    # far_end_audio = _get_aligned_far_end(conn, last_played_seq)
 
-                    if far_end_audio is not None:
+                    # if far_end_audio is not None:
+                    if 1:
                         client_chunk = _client_chunk
-                        chunk1 = np.frombuffer(far_end_audio, dtype=np.int16)
-                        chunk2 = np.frombuffer(client_chunk, dtype=np.int16)
+                        # chunk1 = np.frombuffer(far_end_audio, dtype=np.int16)
+                        # chunk2 = np.frombuffer(client_chunk, dtype=np.int16)
 
-                        aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
-                        # aec3_res = _client_chunk
+                        # aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
+                        aec3_res = _client_chunk
                         chunk3 = np.frombuffer(aec3_res, dtype=np.int16)
                         vad_res = conn.frv.process_stream(chunk3, 160)
 
@@ -433,6 +437,9 @@ async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=
 
 
 async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+    if conn.global_config.get("llm_config", {}).get("prologue", None):
+        conn.llm_queue.put( conn.global_config.get("llm_config", {}).get("prologue", None))
+        # await asyncio.sleep(2)
     while 1:
         if not conn.llm_queue.empty():
             question = conn.llm_queue.get()
@@ -440,6 +447,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             current_sentence = ""
             conn.dialogue_history.append({"role": "user", "content": question})
             async for text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
+                print("text is ", text)
                 current_sentence += text
                 all_reply += text
                 await websocket.send_json({"type": "assistant", "text": text})

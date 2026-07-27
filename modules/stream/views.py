@@ -33,7 +33,7 @@ async def websocket_endpoint(websocket: WebSocket):
     prompt = await websocket.receive_json()
     LOG(f"start with client config: {prompt}", "DEBUG")
     conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
-                                      vad_min_thre=prompt.get("vad_min_thre", 0.9), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
+                                      vad_min_thre=prompt.get("vad_min_thre", 0.65), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
     conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
     conn.frv.init(
         config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.param",
@@ -43,10 +43,18 @@ async def websocket_endpoint(websocket: WebSocket):
         16000, 10, 25, 0.9,
     )
     llm_config = {
+        "model_name": "chat_mind_debug_0807_c1",
+        "base_url": "http://192.168.1.52:8841/v2/stream-chat?key_hopesen=erjt@7",
+        "url": "http://192.168.1.52:8841/v2/stream-chat?key_hopesen=erjt@7",
+        "api_key": "123",
+        "prologue": "你好。",
+    }
+    llm_config = {
         "model_name": "glm_47_flash",
         "base_url": "http://192.168.1.52:18831/v1",
         "url": "http://192.168.1.52:18831/v1/chat/completions",
         "api_key": "123",
+        "prologue": "你好。",
     }
     tts_config = {
         "url": "http://192.168.1.52:18852/v1/audio/speech",
@@ -57,9 +65,13 @@ async def websocket_endpoint(websocket: WebSocket):
         "url": "http://192.168.1.52:18832/v1/chat/completions",
         "apikey": "12345",
     }
+    conn.global_config["llm_config"] = llm_config
+    conn.global_config["tts_config"] = tts_config
+    conn.global_config["asr_config"] = asr_config
     asr_lib_name = f"utils.providers.asr.qwen3_asr"
     tts_lib_name = f"utils.providers.tts.CosyVoice"
-    llm_lib_name = f"utils.providers.llm.openai.openai"
+    # llm_lib_name = f"utils.providers.llm.psyModel"
+    llm_lib_name = f"utils.providers.llm.openai"
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
@@ -81,9 +93,9 @@ async def websocket_endpoint(websocket: WebSocket):
         conn = None
         print(f"manba out {e}")
     
-    except Exception as e:
-        conn.pa = None
-        conn.frv = None
-        await conn.chunk_asr_client.close()
-        conn = None
-        LOG(f"客户端连接异常断开: {e}", "DEBUG")
+    # except Exception as e:
+    #     conn.pa = None
+    #     conn.frv = None
+    #     await conn.chunk_asr_client.close()
+    #     conn = None
+    #     LOG(f"客户端连接异常断开: {e}", "DEBUG")
