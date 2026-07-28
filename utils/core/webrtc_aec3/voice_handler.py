@@ -142,6 +142,8 @@ class ConnectionObjectCustomAec3:
         # ---- NEW: framed protocol state ----
         self.use_framed_protocol = False  # auto-detected on first packet
         self.framed_partial = b""  # leftover bytes for framed parsing
+        # self.aec3_data_queue = Queue()
+        # self.delay_time = time.time() * 1000
         
         # llm and tts and asr
         self.llm_queue = Queue()
@@ -163,7 +165,6 @@ class ConnectionObjectCustomAec3:
 # ============================================================
 async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Receive audio from client. Auto-detects framed (MICK) vs raw PCM."""
-    nums = 0
     while True:
         data = await websocket.receive_bytes()
         conn.audio_chunk_queue.put((data, 1))
@@ -227,6 +228,7 @@ async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3
                 conn.send_seq += 1
                 conn.far_end_buffer[conn.send_seq] = data1
                 conn.far_end_seq_list.append(conn.send_seq)
+                # conn.aec3_data_queue.put(data1)
 
             await reader.close()
             LOG(f"持续向客户端发送 {conn.send_seq} 个音频", "DEBUG")
@@ -263,7 +265,7 @@ def _get_aligned_far_end(conn: ConnectionObjectCustomAec3, last_played_seq):
 
 async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Process mic audio with AEC+VAD using aligned far-end reference."""
-
+    nums = 0
     while True:
         if not conn.audio_chunk_queue.empty():
             item = conn.audio_chunk_queue.get()
@@ -292,12 +294,19 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
 
                     # if far_end_audio is not None:
                     if 1:
-                        client_chunk = _client_chunk
-                        # chunk1 = np.frombuffer(far_end_audio, dtype=np.int16)
-                        # chunk2 = np.frombuffer(client_chunk, dtype=np.int16)
+                        # if not conn.aec3_data_queue.empty():
+                        #     if nums < 1: nums += 1;continue
+                        #     a = conn.aec3_data_queue.get()
+                        #     chunk1 = np.frombuffer(a, dtype=np.int16)
+                        #     chunk2 = np.frombuffer(_client_chunk, dtype=np.int16)
+                        #     aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
+                        # else:
+                        #     aec3_res = _client_chunk
+                            
+                        # client_chunk = _client_chunk
+                        aec3_res = _client_chunk
 
                         # aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
-                        aec3_res = _client_chunk
                         chunk3 = np.frombuffer(aec3_res, dtype=np.int16)
                         vad_res = conn.frv.process_stream(chunk3, 160)
 
@@ -447,7 +456,6 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             current_sentence = ""
             conn.dialogue_history.append({"role": "user", "content": question})
             async for text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
-                print("text is ", text)
                 current_sentence += text
                 all_reply += text
                 await websocket.send_json({"type": "assistant", "text": text})

@@ -7,3 +7,4 @@ mosquitto-dev
 logs
 models
 *.onnx
+static

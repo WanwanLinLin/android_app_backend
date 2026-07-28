@@ -1,4 +1,6 @@
 import sys
+
+from fastapi.staticfiles import StaticFiles
 sys.path.append("./3rd")
 
 import traceback
@@ -14,6 +16,7 @@ from modules.user.views import router as user_router
 from modules.inspection.views import router as inspection_router
 from modules.tts.views import router as tts_router
 from modules.stream.views import router as stream_router
+from modules.video.views import router as video_router
 from utils.apierror import JwtAuthError
 
 app = FastAPI()
@@ -25,13 +28,14 @@ app.add_middleware(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
+app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(task_router)
 app.include_router(device_router)
 app.include_router(user_router)
 app.include_router(inspection_router)
 app.include_router(tts_router)
 app.include_router(stream_router)
+app.include_router(video_router)
 
 
 @app.exception_handler(JwtAuthError)

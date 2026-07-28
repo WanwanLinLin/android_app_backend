@@ -49,13 +49,13 @@ async def websocket_endpoint(websocket: WebSocket):
         "api_key": "123",
         "prologue": "你好。",
     }
-    llm_config = {
-        "model_name": "glm_47_flash",
-        "base_url": "http://192.168.1.52:18831/v1",
-        "url": "http://192.168.1.52:18831/v1/chat/completions",
-        "api_key": "123",
-        "prologue": "你好。",
-    }
+    # llm_config = {
+    #     "model_name": "glm_47_flash",
+    #     "base_url": "http://192.168.1.52:18831/v1",
+    #     "url": "http://192.168.1.52:18831/v1/chat/completions",
+    #     "api_key": "123",
+    #     "prologue": "你好。",
+    # }
     tts_config = {
         "url": "http://192.168.1.52:18852/v1/audio/speech",
         "voice": "zh_female_zhixingnvsheng_mars_bigtts",
@@ -70,8 +70,8 @@ async def websocket_endpoint(websocket: WebSocket):
     conn.global_config["asr_config"] = asr_config
     asr_lib_name = f"utils.providers.asr.qwen3_asr"
     tts_lib_name = f"utils.providers.tts.CosyVoice"
-    # llm_lib_name = f"utils.providers.llm.psyModel"
-    llm_lib_name = f"utils.providers.llm.openai"
+    llm_lib_name = f"utils.providers.llm.psyModel"
+    # llm_lib_name = f"utils.providers.llm.openai"
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
