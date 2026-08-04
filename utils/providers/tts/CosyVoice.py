@@ -22,6 +22,8 @@ class TTSProvider(TTSProviderBase):
             LOG(f"合成的文本：{text}", "DEBUG")
             _save_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
             save_path = config_data["CACHE"]["tts"] + "16k_" + str(uuid.uuid4()) + ".wav"
+            # print(f"原始音频保存路径：{_save_path}")
+            # print(f"采样后的音频保存路径：{save_path}")
             try:
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30), connector=aiohttp.TCPConnector(ssl=False)) as session:
                     async with session.post(self.url, json={
@@ -35,6 +37,7 @@ class TTSProvider(TTSProviderBase):
                         # 可选：确认一下原始采样率
                         # 2. 修改采样率为16kHz
                         audio_16k = audio.set_frame_rate(16000)
+                        audio_16k = audio_16k.set_sample_width(2)
                         # audio_16k = audio_16k + 30
                         # 3. 导出转换后的音频文件
                         audio_16k.export(save_path, format='wav')

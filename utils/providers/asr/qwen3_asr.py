@@ -10,6 +10,7 @@ from typing import Optional, Tuple, List
 from datetime import datetime, timezone
 from utils.providers.asr.base import ASRProviderBase
 from typing import Dict
+from utils.getLogs import LOG
 
 TAG = __name__
 
@@ -37,7 +38,7 @@ class ASRProvider(ASRProviderBase):
                     ]
                 }) as _resp:
                 resp = await _resp.json()
-                print("resp is ", resp)
+                LOG(f"{TAG} resp is {resp}", "DEBUG")
                 text = resp["choices"][0]["message"]["content"]
                 # 1. 分割出语种部分
                 lang_part = text.split("<asr_text>")[0]  # 先按标签分割，取前面部分

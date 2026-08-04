@@ -21,7 +21,7 @@ sample_rate=16000,
 debug=False
 )
 
-wave_filename = "../..//models/SenseVoiceSmall/example/zh.mp3"
+wave_filename = "../../models/SenseVoiceSmall/example/zh.mp3"
 a, sample_rate = sf.read(wave_filename, dtype="int16", always_2d=True)
 # audio = audio[:, 0]  # only use the first channel
 # audio is a 1-D float32 numpy array normalized to the range [-1, 1]
