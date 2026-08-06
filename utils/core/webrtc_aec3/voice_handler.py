@@ -32,22 +32,53 @@ from utils.getLogs import LOG
 class AsyncWavReader:
     def __init__(self, path, frame_size):
         self.path = path
-        self.frame_size = frame_size
-        self.frame_bytes = frame_size * 2  # 16bit 单声道
+        self.frame_size = frame_size          # 采样点数（如 1024）
         self.fh = None
         self.data_offset = 0
+        self.frame_bytes = frame_size * 2     # 默认单声道 16bit，但会在 open 中根据声道数更新
 
     async def open(self):
-        # 异步打开文件 + 解析wav头
         self.fh = await aiofiles.open(self.path, "rb")
-        # 跳过RIFF头(44字节标准wav)
-        header = await self.fh.read(44)
-        # 定位到音频数据起始位置
-        self.data_offset = 44
-        await self.fh.seek(self.data_offset)
+        
+        # 读取 RIFF 头
+        riff = await self.fh.read(12)
+        if riff[:4] != b'RIFF' or riff[8:12] != b'WAVE':
+            raise ValueError("不是有效的 WAV 文件")
+
+        # 循环解析 chunk
+        while True:
+            chunk_header = await self.fh.read(8)
+            if len(chunk_header) < 8:
+                raise ValueError("未找到 data chunk")
+            
+            chunk_id, chunk_size = struct.unpack('<4sI', chunk_header)
+            
+            if chunk_id == b'fmt ':
+                # 读取 fmt 的基本信息（至少 16 字节）
+                fmt_data = await self.fh.read(16)
+                audio_format, channels, sample_rate, byte_rate, block_align, bits_per_sample = struct.unpack('<HHIIHH', fmt_data)
+                if audio_format != 1:
+                    raise ValueError("仅支持 PCM 格式")
+                # 根据实际声道数更新每帧字节数
+                self.frame_bytes = self.frame_size * channels * (bits_per_sample // 8)
+                # 跳过 fmt 剩余部分（如果有扩展）
+                if chunk_size > 16:
+                    await self.fh.seek(chunk_size - 16, 1)
+            
+            elif chunk_id == b'data':
+                # 此时文件指针正好位于 data 内容的起始处
+                self.data_offset = await self.fh.tell()
+                break  # 找到 data，退出循环
+            
+            else:
+                # 其他块（如 fact, bext, list 等）直接跳过
+                await self.fh.seek(chunk_size, 1)
+
+        # 如果循环结束仍未 break，说明没有 data 块
+        if self.data_offset == 0:
+            raise ValueError("文件中没有 data 块")
 
     async def read_frame(self):
-        # 异步读取一帧音频
         data = await self.fh.read(self.frame_bytes)
         return data
 

@@ -50,25 +50,28 @@ async def websocket_endpoint(websocket: WebSocket):
         "prologue": "你好。",
     }
     # llm_config = {
-    #     "model_name": "glm_47_flash",
-    #     "base_url": "http://192.168.1.52:18831/v1",
-    #     "url": "http://192.168.1.52:18831/v1/chat/completions",
+    #     "model_name": "qwen3_5_27b",
+    #     "base_url": "http://192.168.3.36:8080/v1",
+    #     "url": "http://192.168.3.36:8080/v1/chat/completions",
     #     "api_key": "123",
     #     "prologue": "你好。",
     # }
     tts_config = {
         "url": "http://192.168.1.52:18852/v1/audio/speech",
+        # "url": "http://192.168.3.36:18852/v1/audio/speech",
         "voice": "zh_female_zhixingnvsheng_mars_bigtts",
         "apikey": "12345"
     }
     asr_config = {
         "url": "http://192.168.1.52:18832/v1/chat/completions",
+        # "url": "http://192.168.3.36:18844/v1/asr?key_hopesen=erjt@7",
         "apikey": "12345",
     }
     conn.global_config["llm_config"] = llm_config
     conn.global_config["tts_config"] = tts_config
     conn.global_config["asr_config"] = asr_config
     asr_lib_name = f"utils.providers.asr.qwen3_asr"
+    # asr_lib_name = f"utils.providers.asr.generic_asr"
     tts_lib_name = f"utils.providers.tts.CosyVoice"
     llm_lib_name = f"utils.providers.llm.psyModel"
     # llm_lib_name = f"utils.providers.llm.openai"
@@ -76,6 +79,7 @@ async def websocket_endpoint(websocket: WebSocket):
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
     conn.chunk_asr_client = await websockets.connect("ws://127.0.0.1:18113/v1/stream/chunk")
+    # conn.chunk_asr_client = await websockets.connect("ws://192.168.3.36:18113/v1/stream/chunk")
     try:
         await asyncio.gather(
             receive_audio_data(websocket, conn),

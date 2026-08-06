@@ -2,7 +2,9 @@ import uuid
 import json
 import base64
 import aiohttp
-import requests
+import asyncio
+import aiofiles
+import subprocess
 from utils.providers.tts.base import TTSProviderBase
 from pydub import AudioSegment
 from typing import Dict
@@ -30,17 +32,22 @@ class TTSProvider(TTSProviderBase):
                         "input": text,
                         "voice": self.voice,
                         "response_format": "wav"}) as response:
-                        with open(_save_path, "wb") as f:
-                            f.write(await response.read())
+                        audio_data = await response.read()
+                        async with aiofiles.open(_save_path, "wb") as f:
+                            await f.write(audio_data)
                 
-                        audio = AudioSegment.from_wav(_save_path)
-                        # 可选：确认一下原始采样率
-                        # 2. 修改采样率为16kHz
-                        audio_16k = audio.set_frame_rate(16000)
-                        audio_16k = audio_16k.set_sample_width(2)
-                        # audio_16k = audio_16k + 30
-                        # 3. 导出转换后的音频文件
-                        audio_16k.export(save_path, format='wav')
+                        # audio = AudioSegment.from_wav(_save_path)
+                        # # 可选：确认一下原始采样率
+                        # # 2. 修改采样率为16kHz
+                        # audio_16k = audio.set_frame_rate(16000)
+                        # audio_16k = audio_16k.set_sample_width(2)
+                        # # audio_16k = audio_16k + 30
+                        # # 3. 导出转换后的音频文件
+                        # audio_16k.export(save_path, format='wav')
+                        command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
+                        print(f"save_path is {save_path}")
+                        process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        output, error = await process.communicate()
                         return save_path
             except Exception as e:
                 LOG(f"error: 合成 {text} 报错：{e}。重试第 {nums} 次。", "DEBUG")
