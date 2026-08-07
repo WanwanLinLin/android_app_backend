@@ -50,9 +50,9 @@ async def websocket_endpoint(websocket: WebSocket):
         "prologue": "你好。",
     }
     # llm_config = {
-    #     "model_name": "qwen3_5_27b",
-    #     "base_url": "http://192.168.3.36:8080/v1",
-    #     "url": "http://192.168.3.36:8080/v1/chat/completions",
+    #     "model_name": "qwen3_5_35b",
+    #     "base_url": "http://192.168.1.89:8080/v1",
+    #     "url": "http://192.168.1.89:8080/v1/chat/completions",
     #     "api_key": "123",
     #     "prologue": "你好。",
     # }

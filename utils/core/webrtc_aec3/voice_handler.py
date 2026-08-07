@@ -360,6 +360,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                             stop_duration = time.time() * 1000 - conn.last_activity_time
                             if stop_duration >= conn.silence_threshold_ms:
                                 LOG("停止监听！", "DEBUG")
+                                await websocket.send_json({"type": "stop_listening"})
                                 conn.status = 0
                                 file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
                                 pcm_data = conn.previous_frame_list + conn.all_asr_data
@@ -398,6 +399,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                             conn.all_point += 1
                             LOG("开始监听333...", "DEBUG")
                             await websocket.send_json({"type": "interrupt"})
+                            await websocket.send_json({"type": "start_listening"})
                             conn.previous_frame_list = conn.previous_frame.get_all_items()
                             conn.status = 1
 
@@ -438,6 +440,7 @@ async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=
         stop_duration = time.time() * 1000 - conn.last_activity_time
         if stop_duration >= conn.silence_threshold_ms:
             LOG("停止监听！", "DEBUG")
+            await websocket.send_json({"type": "stop_listening"})
             conn.status = 0
             file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
             pcm_data = conn.previous_frame_list + conn.all_asr_data
@@ -472,6 +475,7 @@ async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=
         conn.last_activity_time = time.time() * 1000
         conn.all_point += 1
         LOG("开始监听222...", "DEBUG")
+        await websocket.send_json({"type": "start_listening"})
         conn.previous_frame_list = conn.previous_frame.get_all_items()
         conn.status = 1
 

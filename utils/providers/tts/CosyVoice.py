@@ -45,7 +45,7 @@ class TTSProvider(TTSProviderBase):
                         # # 3. 导出转换后的音频文件
                         # audio_16k.export(save_path, format='wav')
                         command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
-                        print(f"save_path is {save_path}")
+                        # print(f"save_path is {save_path}")
                         process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         output, error = await process.communicate()
                         return save_path
