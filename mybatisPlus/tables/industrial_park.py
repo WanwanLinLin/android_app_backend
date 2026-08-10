@@ -1,9 +1,27 @@
 # -*- coding：utf-8 -*-
 from .sqlcli import Base
 from sqlalchemy.orm import relationship
-from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Text, Float, func
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Float, func
 from sqlalchemy.dialects.mysql import LONGTEXT
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+
+def beijing_now():
+    return datetime.now(timezone.utc) + timedelta(hours=8)
+
+
+
+class User(Base):
+    __tablename__ = "User"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(20), default="engineer", comment="角色: admin/engineer")
+    job = Column(Text, default=None, comment="\u5de5\u4f5c\u63cf\u8ff0")
+    phone_number = Column(String(64), index=True, comment="\u7535\u8bdd\u53f7\u7801")
+    nickname = Column(String(100), default=None, comment="真实姓名")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
 
 
 class Device2UserInfo(Base):
@@ -49,9 +67,23 @@ class EngineerInfo(Base):
     update_time = Column(String(50), comment="更新时间", default=None)
     is_free = Column(Boolean, default=True, comment="是否空闲")
     is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
+
+
+class SourceList(Base):
+    __tablename__ = "SourceList"
     
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(30), index=True, comment="资源类型，TTS | LLM | ASR")
+    reference_id = Column(Integer, index=True, comment="映射的资源id")
+    user_id = Column(Integer, index=True, comment="持有资源的用户id")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+
 
 class TTSFactories(Base):
+    """
+    TTS
+    """
     __tablename__ = "TTSFactories"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -61,6 +93,23 @@ class TTSFactories(Base):
     tag = Column(String(64), index=True, comment="音色标签")
     voice = Column(String(128), index=True, comment="音色名称")
     apikey = Column(String(128), comment="请求密钥")
-    create_time = Column(String(30), comment="创建时间")
-    update_time = Column(String(30), comment="更新时间")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    
+
+class LLMFactories(Base):
+    """
+    LLM
+    """
+    __tablename__ = "LLMFactories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(30), index=True, comment="接口类型：generic|openai")
+    url = Column(String(256), default=None, comment="接口地址")
+    apikey = Column(String(128), comment="请求密钥")
+    desc = Column(String(256), default=None, comment="大模型描述")
+    params = Column(JSON, comment="大模型参数")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status
 from utils.common.schema import GeneticResponse
 from mybatisPlus.task_orm import create_task
 from mybatisPlus.engineer_orm import list_engineers_detail
-from mybatisPlus.work_order_user_orm import wo_get_password
+from mybatisPlus.user_orm import get_password
 from utils.randomString import create_numbering
 from utils.auth import JwtAccessToken, validate_accesskey
 from passlib.context import CryptContext
@@ -21,7 +21,7 @@ async def _list_engineers():
 
 @router.post("/v1/user/login")
 async def _login(info: schema.UserLogin):
-    hashed_password = await wo_get_password(info.username)
+    hashed_password = await get_password(info.username)
     if not hashed_password: return GeneticResponse(code=401, msg="Not authenticated")
     start_time = time.perf_counter()
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

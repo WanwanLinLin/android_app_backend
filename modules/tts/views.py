@@ -31,7 +31,7 @@ async def add_voice(info: schema.AddVoiceModel):
     return GeneticResponse()
 
 
-@router.get("/v1/tts/get/{id}", summary="增加一个音色", tags=["通用接口"], dependencies=[Depends(validate_stream_accesskey)])
+@router.get("/v1/tts/get/{id}", summary="获取一个音色详情", tags=["通用接口"], dependencies=[Depends(validate_stream_accesskey)])
 async def _get_one_voice(id: int):
     data = await get_one_voice(id)
     if data: return GeneticResponse(data=data)
