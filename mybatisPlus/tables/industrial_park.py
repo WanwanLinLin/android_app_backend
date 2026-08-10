@@ -113,3 +113,18 @@ class LLMFactories(Base):
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
 
 
+
+class ASRFactories(Base):
+    """
+    ASR
+    """
+    __tablename__ = "ASRFactories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(30), index=True, comment="接口类型：qwen3_asr|sensevoice")
+    url = Column(String(256), default=None, comment="接口地址")
+    desc = Column(String(256), default=None, comment="简短描述")
+    params = Column(JSON, comment="语音识别参数")
+    apikey = Column(String(128), comment="请求密钥")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())

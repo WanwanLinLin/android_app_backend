@@ -20,7 +20,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
                                                   recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
-from mybatisPlus.user_orm import get_source_list
+from mybatisPlus.user_orm import get_source_list, get_source_config
 from utils.getLogs import LOG
 from setting import config_data
 
@@ -29,7 +29,12 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 
 @router.post("/v1/stream/getSourceList", summary="获取用户拥有的资源列表", tags=["通用接口"])
 async def _get_source_list(username: str):
-    return GeneticResponse(data= await get_source_list(username))
+    return GeneticResponse(data=await get_source_list(username))
+
+
+@router.post("/v1/stream/getSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+async def _get_source_list():
+    return GeneticResponse(data=await get_source_config())
 
 
 @router.websocket("/v1/stream/recognition")
@@ -77,7 +82,7 @@ async def websocket_endpoint(websocket: WebSocket):
     conn.global_config["asr_config"] = asr_config
     asr_lib_name = f"utils.providers.asr.qwen3_asr"
     # asr_lib_name = f"utils.providers.asr.generic_asr"
-    tts_lib_name = f"utils.providers.tts.CosyVoice"
+    tts_lib_name = f"utils.providers.tts.cosyvoice"
     llm_lib_name = f"utils.providers.llm.psyModel"
     # llm_lib_name = f"utils.providers.llm.openai"
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
