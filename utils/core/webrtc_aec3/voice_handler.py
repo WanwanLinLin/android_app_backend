@@ -481,8 +481,8 @@ async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=
 
 
 async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
-    if conn.global_config.get("llm_config", {}).get("prologue", None):
-        conn.llm_queue.put( conn.global_config.get("llm_config", {}).get("prologue", None))
+    if conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None):
+        conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
     while 1:
         if not conn.llm_queue.empty():

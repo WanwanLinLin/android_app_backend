@@ -7,10 +7,10 @@ from utils.getLogs import LOG
 
 class LLMProvider(LLMProviderBase):
     def __init__(self, config):
-        self.model_name = config.get("model_name")
-        self.api_key = config.get("api_key")
-        if "base_url" in config:
-            self.base_url = config.get("base_url")
+        self.model_name = config.get("params").get("model_name")
+        self.api_key = config.get("apikey")
+        if "base_url" in config.get("params"):
+            self.base_url = config.get("params").get("base_url")
         else:
             self.base_url = config.get("url")
         # 增加timeout的配置项，单位为秒
@@ -41,6 +41,7 @@ class LLMProvider(LLMProviderBase):
 
     async def response(self, session_id, dialogue, **kwargs):
         try:
+            print(f"dialogue is {dialogue}")
             responses = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=dialogue,

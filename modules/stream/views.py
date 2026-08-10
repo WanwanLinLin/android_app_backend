@@ -52,43 +52,20 @@ async def websocket_endpoint(websocket: WebSocket):
         config_data["MODEL_CONFIG"][0]["path"] + "cmvn_istd_stream.bin",
         16000, 10, 25, 0.9,
     )
-    llm_config = {
-        "model_name": "chat_mind_debug_0807_c1",
-        "base_url": "http://192.168.1.52:8841/v2/stream-chat?key_hopesen=erjt@7",
-        "url": "http://192.168.1.52:8841/v2/stream-chat?key_hopesen=erjt@7",
-        "api_key": "123",
-        "prologue": "你好。",
-    }
-    # llm_config = {
-    #     "model_name": "qwen3_5_35b",
-    #     "base_url": "http://192.168.1.89:8080/v1",
-    #     "url": "http://192.168.1.89:8080/v1/chat/completions",
-    #     "api_key": "123",
-    #     "prologue": "你好。",
-    # }
-    tts_config = {
-        "url": "http://192.168.1.52:18852/v1/audio/speech",
-        # "url": "http://192.168.3.36:18852/v1/audio/speech",
-        "voice": "zh_female_zhixingnvsheng_mars_bigtts",
-        "apikey": "12345"
-    }
-    asr_config = {
-        "url": "http://192.168.1.52:18832/v1/chat/completions",
-        # "url": "http://192.168.3.36:18844/v1/asr?key_hopesen=erjt@7",
-        "apikey": "12345",
-    }
+    all_configs = await get_source_config()
+    llm_config = all_configs.get("llm_config")
+    tts_config = all_configs.get("tts_config")
+    asr_config = all_configs.get("asr_config")
     conn.global_config["llm_config"] = llm_config
     conn.global_config["tts_config"] = tts_config
     conn.global_config["asr_config"] = asr_config
-    asr_lib_name = f"utils.providers.asr.qwen3_asr"
-    # asr_lib_name = f"utils.providers.asr.generic_asr"
-    tts_lib_name = f"utils.providers.tts.cosyvoice"
-    llm_lib_name = f"utils.providers.llm.psyModel"
-    # llm_lib_name = f"utils.providers.llm.openai"
+    asr_lib_name = f"utils.providers.asr.{asr_config.get('type')}"
+    tts_lib_name = f"utils.providers.tts.{tts_config.get('tag')}"
+    llm_lib_name = f"utils.providers.llm.{llm_config.get('type')}"
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
-    conn.chunk_asr_client = await websockets.connect("ws://127.0.0.1:18113/v1/stream/chunk")
+    conn.chunk_asr_client = await websockets.connect(asr_config.get("params").get("stream_asr_url"))
     # conn.chunk_asr_client = await websockets.connect("ws://192.168.3.36:18113/v1/stream/chunk")
     try:
         await asyncio.gather(
