@@ -175,6 +175,62 @@ async def get_source_config(**kwargs):
             }
 
 
+async def get_default_source_config(username: str):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            user = await session.scalar(select(User).filter_by(username=username))
+            sources = await session.scalars(
+                select(SourceList).filter_by(user_id=user.id, is_default=True)
+            )
+            llm_config = None
+            tts_config = None
+            asr_config = None
+            for s in sources:
+                if s.type == SourceTypeEnum.LLM.value:
+                    llm_config = await session.scalar(select(LLMFactories).filter_by(id=s.reference_id))
+                elif s.type == SourceTypeEnum.TTS.value:
+                    tts_config = await session.scalar(select(TTSFactories).filter_by(id=s.reference_id))
+                elif s.type == SourceTypeEnum.ASR.value:
+                    asr_config = await session.scalar(select(ASRFactories).filter_by(id=s.reference_id))
+            
+            return {
+                "llm_config": _GetLLMList.model_validate(llm_config).model_dump() if llm_config else None,
+                "tts_config": _GetTTSList.model_validate(tts_config).model_dump() if tts_config else None,
+                "asr_config": _GetASRList.model_validate(asr_config).model_dump() if asr_config else None,
+            }
+            
+
+async def save_default_source_config(**kwargs):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            user = await session.scalar(select(User).filter_by(username=kwargs.get("username")))
+            sources = await session.scalars(
+                select(SourceList).filter_by(user_id=user.id, is_default=True)
+            )
+            for s in sources:
+                if s.type == SourceTypeEnum.LLM.value:
+                    s.is_default = False
+                elif s.type == SourceTypeEnum.TTS.value:
+                    s.is_default = False
+                elif s.type == SourceTypeEnum.ASR.value:
+                    s.is_default = False
+                session.add(s)
+            # LLM
+            source1 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.LLM.value, reference_id=kwargs.get("llm_id")))
+            source1.is_default = 1
+            # TTS
+            source2 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.TTS.value, reference_id=kwargs.get("tts_id")))
+            source2.is_default = 1
+            # ASR
+            source3 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.ASR.value, reference_id=kwargs.get("asr_id")))
+            source3.is_default = 1
+            session.add(source1)
+            session.add(source2)
+            session.add(source3)
+            
+            return 1
+
+
 if __name__ == "__main__":
     import asyncio
     

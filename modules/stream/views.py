@@ -22,7 +22,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
                                                   recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
-from mybatisPlus.user_orm import get_source_list, get_source_config
+from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from utils.getLogs import LOG
 from setting import config_data
 
@@ -35,9 +35,20 @@ async def _get_source_list(username: str):
     return GeneticResponse(data=await get_source_list(username))
 
 
-@router.post("/v1/stream/getSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
-async def _get_source_config():
-    return GeneticResponse(data=await get_source_config())
+# @router.post("/v1/stream/getSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+# async def _get_source_config():
+#     return GeneticResponse(data=await get_source_config())
+
+
+@router.post("/v1/stream/getDefaultSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+async def _get_default_source_config(username: str):
+    return GeneticResponse(data=await get_default_source_config(username))
+
+
+@router.post("/v1/stream/saveDefaultSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+async def _save_default_source_config(info: schema.SaveDefaultSourceConfig):
+    await save_default_source_config(**info.model_dump())
+    return GeneticResponse()
 
 
 @router.websocket("/v1/stream/recognition")
@@ -88,7 +99,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
         conn.frv = None
         await conn.chunk_asr_client.close()
         conn = None
-        print(f"manba out {e}")
+        # print(f"manba out {e}")
     
     # except Exception as e:
     #     conn.pa = None

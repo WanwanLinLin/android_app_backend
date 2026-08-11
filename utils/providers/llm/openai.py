@@ -41,7 +41,6 @@ class LLMProvider(LLMProviderBase):
 
     async def response(self, session_id, dialogue, **kwargs):
         try:
-            print(f"dialogue is {dialogue}")
             responses = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=dialogue,

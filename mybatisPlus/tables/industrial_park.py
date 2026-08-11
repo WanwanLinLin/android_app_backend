@@ -76,6 +76,7 @@ class SourceList(Base):
     type = Column(String(30), index=True, comment="资源类型，TTS | LLM | ASR")
     reference_id = Column(Integer, index=True, comment="映射的资源id")
     user_id = Column(Integer, index=True, comment="持有资源的用户id")
+    is_default = Column(Boolean, index=True, default=False, comment="是否是默认资源")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
 
@@ -111,7 +112,6 @@ class LLMFactories(Base):
     params = Column(JSON, comment="大模型参数")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
-
 
 
 class ASRFactories(Base):

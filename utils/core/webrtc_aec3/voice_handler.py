@@ -503,14 +503,16 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 # conn.tts_text_queue.put(text)
                 if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
                     # await websocket.send_json({"type": "assistant", "text": current_sentence})
-                    tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
-                    conn.tts_pending_queue.appendleft(tts_task)
+                    # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}")
+                    # tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
+                    # conn.tts_pending_queue.appendleft(tts_task)
+                    conn.tts_pending_queue.appendleft(current_sentence)
                     current_sentence = ""
             # 处理剩余语句
             if current_sentence:
-                # await websocket.send_json({"type": "assistant", "text": current_sentence})
-                tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
-                conn.tts_pending_queue.appendleft(tts_task)
+                # tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
+                # conn.tts_pending_queue.appendleft(tts_task)
+                conn.tts_pending_queue.appendleft(current_sentence)
             conn.dialogue_history.append({"role": "assistant", "content": all_reply})
             await websocket.send_json({"type": "finish"})
         else:
@@ -518,19 +520,41 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
 
 
 async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+    current_tts_task = None
     while 1:
+        # if conn.status == 1:
+        #     while len(conn.tts_pending_queue):
+        #         t = conn.tts_pending_queue.pop()
+        #         t.cancel()
+        #         LOG(f"{datetime.now()} 取消一个tts任务！", "DEBUG")
+        # elif len(conn.tts_pending_queue):
+        #     current_tts_task = conn.tts_pending_queue.pop()
+        #     if not current_tts_task.done():
+        #         conn.tts_pending_queue.append(current_tts_task)
+        #     else:
+        #         if current_tts_task.result():
+        #             conn.tts_path_queue.put(current_tts_task.result())
+        # await asyncio.sleep(0.008)
+        
         if conn.status == 1:
             while len(conn.tts_pending_queue):
-                t = conn.tts_pending_queue.pop()
-                t.cancel()
-                LOG(f"{datetime.now()} 取消一个tts任务！", "DEBUG")
-        elif len(conn.tts_pending_queue):
-            current_tts_task = conn.tts_pending_queue.pop()
-            if not current_tts_task.done():
-                conn.tts_pending_queue.append(current_tts_task)
-            else:
+                text = conn.tts_pending_queue.pop()
+            if current_tts_task:    
+                LOG(f"取消一个tts任务: {current_tts_task.get_name()}", "DEBUG")
+                current_tts_task.cancel()
+                current_tts_task = None
+        elif len(conn.tts_pending_queue) or current_tts_task:
+            if not current_tts_task:
+                text = conn.tts_pending_queue.pop()
+                # print(f"创建任务：{text}")
+                current_tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(text, conn), name=text)
+            elif current_tts_task.done():
                 if current_tts_task.result():
                     conn.tts_path_queue.put(current_tts_task.result())
+                    current_tts_task = None
+            else:
+                ...
+                # conn.tts_pending_queue.append(text)
         await asyncio.sleep(0.008)
 
 
