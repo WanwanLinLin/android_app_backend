@@ -1,3 +1,4 @@
+import time
 import uuid
 import json
 import base64
@@ -21,7 +22,7 @@ class TTSProvider(TTSProviderBase):
         nums = 0
         for i in range(5):
             nums += 1
-            LOG(f"合成的文本：{text}", "DEBUG")
+            start_time = time.perf_counter()
             _save_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
             save_path = config_data["CACHE"]["tts"] + "16k_" + str(uuid.uuid4()) + ".wav"
             # print(f"原始音频保存路径：{_save_path}")
@@ -48,6 +49,7 @@ class TTSProvider(TTSProviderBase):
                         # print(f"save_path is {save_path}")
                         process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         output, error = await process.communicate()
+                        LOG(f"合成的文本：{text} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")
                         return save_path
             except Exception as e:
                 LOG(f"error: 合成 {text} 报错：{e}。重试第 {nums} 次。", "DEBUG")

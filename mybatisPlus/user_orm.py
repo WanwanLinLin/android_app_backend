@@ -159,9 +159,9 @@ async def get_source_list(username: str):
 
 
 async def get_source_config(**kwargs):
-    tts_id = kwargs.get("tts_id", 1)
-    asr_id = kwargs.get("asr_id", 1)
-    llm_id = kwargs.get("llm_id", 1)
+    tts_id = kwargs.get("tts_id") if kwargs.get("tts_id", None) else 1
+    asr_id = kwargs.get("asr_id") if kwargs.get("asr_id", None) else 1
+    llm_id = kwargs.get("llm_id") if kwargs.get("llm_id", None) else 1
     async with AsyncSessionLocal() as session:
         async with session.begin():
             tts_config = await session.scalar(select(TTSFactories).filter_by(id=tts_id))

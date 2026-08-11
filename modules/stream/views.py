@@ -12,12 +12,14 @@ import asyncio
 import aiofiles
 import importlib
 import websockets
+
+from utils.apierror import AccessKeyAuthError
 from . import schema
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, UploadFile, Form, File
 from pydub import AudioSegment
 from utils.common.schema import GeneticResponse
-from utils.common.auth import validate_stream_accesskey
+from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
                                                   recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
 from mybatisPlus.user_orm import get_source_list, get_source_config
@@ -27,19 +29,21 @@ from setting import config_data
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
-@router.post("/v1/stream/getSourceList", summary="获取用户拥有的资源列表", tags=["通用接口"])
+@router.post("/v1/stream/getSourceList", summary="获取用户拥有的资源列表", tags=["通用接口"],
+             dependencies=[Depends(validate_stream_accesskey)])
 async def _get_source_list(username: str):
     return GeneticResponse(data=await get_source_list(username))
 
 
 @router.post("/v1/stream/getSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
-async def _get_source_list():
+async def _get_source_config():
     return GeneticResponse(data=await get_source_config())
 
 
 @router.websocket("/v1/stream/recognition")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeStamp: str):
     await websocket.accept()
+    if not OnewayEncryption().verify_token(timeStamp, token): raise AccessKeyAuthError
     prompt = await websocket.receive_json()
     LOG(f"start with client config: {prompt}", "DEBUG")
     conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
@@ -52,7 +56,9 @@ async def websocket_endpoint(websocket: WebSocket):
         config_data["MODEL_CONFIG"][0]["path"] + "cmvn_istd_stream.bin",
         16000, 10, 25, 0.9,
     )
-    all_configs = await get_source_config()
+    all_configs = await get_source_config(llm_id=prompt.get("source_config", {}).get("model_id", None),
+                                          tts_id=prompt.get("source_config", {}).get("tts_id", None),
+                                          asr_id=prompt.get("source_config", {}).get("asr_id", None))
     llm_config = all_configs.get("llm_config")
     tts_config = all_configs.get("tts_config")
     asr_config = all_configs.get("asr_config")
