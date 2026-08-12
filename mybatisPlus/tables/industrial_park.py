@@ -128,3 +128,20 @@ class ASRFactories(Base):
     apikey = Column(String(128), comment="请求密钥")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    
+
+class FigureFactories(Base):
+    """
+    数字形象管理
+    """
+    __tablename__ = "FigureFactories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(30), index=True, comment="BACKGROUND|FIGURE")
+    name = Column(String(256), comment="资源名称")
+    filename = Column(String(256), default=None, comment="压缩包文件名")
+    author = Column(String(128), comment="作者")
+    version = Column(String(128), comment="当前版本号")
+    desc = Column(Text, default=None, comment="形象描述")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())

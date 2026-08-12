@@ -14,3 +14,5 @@ class SourceTypeEnum(Enum):
     TTS = "TTS"
     LLM = "LLM"
     ASR = "ASR"
+    FIGURE = "FIGURE"
+    BACKGROUND = "BACKGROUND"

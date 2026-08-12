@@ -19,6 +19,7 @@ from modules.llm.views import router as llm_router
 from modules.asr.views import router as asr_router
 from modules.stream.views import router as stream_router
 from modules.video.views import router as video_router
+from modules.figure.views import router as figure_router
 from utils.apierror import JwtAuthError
 
 app = FastAPI()
@@ -40,6 +41,7 @@ app.include_router(llm_router)
 app.include_router(asr_router)
 app.include_router(stream_router)
 app.include_router(video_router)
+app.include_router(figure_router)
 
 
 @app.exception_handler(JwtAuthError)

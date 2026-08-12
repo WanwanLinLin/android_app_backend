@@ -493,28 +493,23 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             all_reply = ""
             current_sentence = ""
             conn.dialogue_history.append({"role": "user", "content": question})
-            async for text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
-                current_sentence += text
-                all_reply += text
-                await websocket.send_json({"type": "assistant", "text": text})
-                await asyncio.sleep(0.005)
-                if conn.status != 0:
-                    await websocket.send_json({"type": "finish"})
-                    conn.dialogue_history.append({"role": "assistant", "content": all_reply})
-                    LOG("LLM 回复被打断...", "DEBUG")
-                    break
-                # conn.tts_text_queue.put(text)
-                if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
-                    # await websocket.send_json({"type": "assistant", "text": current_sentence})
-                    LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
-                    # tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
-                    # conn.tts_pending_queue.appendleft(tts_task)
-                    conn.tts_pending_queue.appendleft(current_sentence)
-                    current_sentence = ""
+            async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
+                for text in _text:
+                    current_sentence += text
+                    all_reply += text
+                    await websocket.send_json({"type": "assistant", "text": text})
+                    await asyncio.sleep(0.005)
+                    if conn.status != 0:
+                        await websocket.send_json({"type": "finish"})
+                        conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+                        LOG("LLM 回复被打断...", "DEBUG")
+                        break
+                    if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
+                        # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
+                        conn.tts_pending_queue.appendleft(current_sentence)
+                        current_sentence = ""
             # 处理剩余语句
             if current_sentence:
-                # tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
-                # conn.tts_pending_queue.appendleft(tts_task)
                 conn.tts_pending_queue.appendleft(current_sentence)
             conn.dialogue_history.append({"role": "assistant", "content": all_reply})
             await websocket.send_json({"type": "finish"})
