@@ -30,12 +30,13 @@ from utils.getLogs import LOG
 
 
 class AsyncWavReader:
-    def __init__(self, path, frame_size):
+    def __init__(self, path, frame_size, conn):
         self.path = path
         self.frame_size = frame_size          # 采样点数（如 1024）
         self.fh = None
         self.data_offset = 0
         self.frame_bytes = frame_size * 2     # 默认单声道 16bit，但会在 open 中根据声道数更新
+        self.conn = conn
 
     async def open(self):
         self.fh = await aiofiles.open(self.path, "rb")
@@ -46,7 +47,7 @@ class AsyncWavReader:
             raise ValueError("不是有效的 WAV 文件")
 
         # 循环解析 chunk
-        while True:
+        while self.conn.is_active:
             chunk_header = await self.fh.read(8)
             if len(chunk_header) < 8:
                 raise ValueError("未找到 data chunk")
@@ -132,6 +133,7 @@ class ConnectionObjectCustomAec3:
         self.status = 0  # 0:silence 1:playing
         self.frame_size = 320
         self.global_config = {}
+        self.is_active = True
 
         # asr
         self.all_cache = {}
@@ -196,7 +198,7 @@ class ConnectionObjectCustomAec3:
 # ============================================================
 async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Receive audio from client. Auto-detects framed (MICK) vs raw PCM."""
-    while True:
+    while conn.is_active:
         data = await websocket.receive_bytes()
         conn.audio_chunk_queue.put((data, 1))
         # # ---- Auto-detect framed protocol on first packet ----
@@ -236,15 +238,16 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Send TTS/playback audio to client, storing each frame in far_end_buffer
     with a monotonic send_seq for later alignment."""
-    while True:
+    while conn.is_active:
         if not conn.tts_path_queue.empty():
             file_path = conn.tts_path_queue.get()
             reader = AsyncWavReader(
                 path=file_path,
                 frame_size=160,
+                conn=conn
             )
             await reader.open()
-            while True:
+            while conn.is_active:
                 if conn.status == 1: break  # 打断tts数据传输
                 data1 = await reader.read_frame()
                 if len(data1) < 160 * 2:
@@ -268,7 +271,7 @@ async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3
 
 
 async def recognize_asr_file(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
-    while 1:
+    while conn.is_active:
         if not conn.asr_pending_queue.empty():
             file_path = conn.asr_pending_queue.get()
             conn.in_recognize = True
@@ -297,7 +300,7 @@ def _get_aligned_far_end(conn: ConnectionObjectCustomAec3, last_played_seq):
 async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Process mic audio with AEC+VAD using aligned far-end reference."""
     nums = 0
-    while True:
+    while conn.is_active:
         if not conn.audio_chunk_queue.empty():
             item = conn.audio_chunk_queue.get()
             if conn.in_recognize:  continue
@@ -484,7 +487,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
     if conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None):
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
-    while 1:
+    while conn.is_active:
         if not conn.llm_queue.empty():
             question = conn.llm_queue.get()
             all_reply = ""
@@ -503,7 +506,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 # conn.tts_text_queue.put(text)
                 if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
                     # await websocket.send_json({"type": "assistant", "text": current_sentence})
-                    # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}")
+                    LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                     # tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(current_sentence, conn))
                     # conn.tts_pending_queue.appendleft(tts_task)
                     conn.tts_pending_queue.appendleft(current_sentence)
@@ -521,7 +524,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
 
 async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     current_tts_task = None
-    while 1:
+    while conn.is_active:
         # if conn.status == 1:
         #     while len(conn.tts_pending_queue):
         #         t = conn.tts_pending_queue.pop()
@@ -539,6 +542,7 @@ async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCusto
         if conn.status == 1:
             while len(conn.tts_pending_queue):
                 text = conn.tts_pending_queue.pop()
+                LOG(f"舍弃: {text}", "DEBUG")
             if current_tts_task:    
                 LOG(f"取消一个tts任务: {current_tts_task.get_name()}", "DEBUG")
                 current_tts_task.cancel()
@@ -559,7 +563,7 @@ async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCusto
 
 
 async def send_asr_chunk(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
-    while 1:
+    while conn.is_active:
         _text = await conn.chunk_asr_client.recv()
         text = json.loads(_text, strict=False)
         if not conn.last_chunk_sentence:

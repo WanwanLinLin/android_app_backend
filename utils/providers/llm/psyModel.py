@@ -11,7 +11,7 @@ class LLMProvider(LLMProviderBase):
     def __init__(self, config):
         self.model_name = config.get("params").get("model_name")
         self.api_key = config.get("apikey")
-        self.response_language = config.get("response_language", "zh-cn")   # zh-cn, en, zh-hk
+        self.response_language = config.get("params").get("response_language", "zh-cn")   # zh-cn, en, zh-hk
         if "base_url" in config:
             self.base_url = config.get("base_url")
         else:

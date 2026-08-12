@@ -95,9 +95,11 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
             send_asr_chunk(websocket, conn),
         )
     except WebSocketDisconnect as e:
+        conn.is_active = False
         conn.pa = None
         conn.frv = None
         await conn.chunk_asr_client.close()
+        await asyncio.sleep(1)  # 等待资源释放
         conn = None
         # print(f"manba out {e}")
     
