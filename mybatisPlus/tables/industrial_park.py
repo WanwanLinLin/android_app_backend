@@ -139,6 +139,7 @@ class FigureFactories(Base):
     id = Column(Integer, primary_key=True, index=True)
     type = Column(String(30), index=True, comment="BACKGROUND|FIGURE")
     name = Column(String(256), comment="资源名称")
+    savename = Column(String(256), comment="资源解压后的保存名称（可能为目录|文件名称）")
     filename = Column(String(256), default=None, comment="压缩包文件名")
     author = Column(String(128), comment="作者")
     version = Column(String(128), comment="当前版本号")
