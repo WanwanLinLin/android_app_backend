@@ -499,15 +499,15 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
                     await asyncio.sleep(0.005)
-                    if conn.status != 0:
-                        await websocket.send_json({"type": "finish"})
-                        conn.dialogue_history.append({"role": "assistant", "content": all_reply})
-                        LOG("LLM 回复被打断...", "DEBUG")
-                        break
                     if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft(current_sentence)
                         current_sentence = ""
+                if conn.status != 0:
+                    await websocket.send_json({"type": "finish"})
+                    conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+                    LOG("LLM 回复被打断...", "DEBUG")
+                    break
             # 处理剩余语句
             if current_sentence:
                 conn.tts_pending_queue.appendleft(current_sentence)
