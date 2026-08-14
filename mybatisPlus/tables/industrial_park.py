@@ -144,5 +144,6 @@ class FigureFactories(Base):
     author = Column(String(128), comment="作者")
     version = Column(String(128), comment="当前版本号")
     desc = Column(Text, default=None, comment="形象描述")
+    resolution = Column(JSON, default="[]", comment="支持的分辨率")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())

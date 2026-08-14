@@ -25,6 +25,7 @@ class _GetFigureList(BaseModel):
     desc: Union[str, None]
     savename: Union[str, None]
     version: Union[str, None]
+    resolution: Union[List, None]
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
     
