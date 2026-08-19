@@ -33,7 +33,7 @@ class TTSProvider(TTSProviderBase):
                     "input": text,
                     "voice": self.voice,
                     "speed": 1.0,
-                    "response_format": "wav",
+                    "response_format": "pcm",
                     "language": "Chinese",
                     "instruct": "请用纯正广东话朗读" 
                 }
@@ -45,7 +45,7 @@ class TTSProvider(TTSProviderBase):
                         with open(_save_path, "wb") as f:
                             f.write(await response.read())
                     
-                    command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
+                    command = f"ffmpeg -f s16le -ar 24000 -ac 1 -i {_save_path} -f s16le -ar 16000 {save_path}"
                     # print(f"save_path is {save_path}")
                     process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     output, error = await process.communicate()

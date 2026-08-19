@@ -18,7 +18,7 @@ class LLMProvider(LLMProviderBase):
         self.timeout = int(timeout) if timeout else 300
 
         param_defaults = {
-            "max_tokens": (500, int),
+            "max_tokens": (4096, int),
             "temperature": (0.7, lambda x: round(float(x), 1)),
             "top_p": (1.0, lambda x: round(float(x), 1)),
             "frequency_penalty": (0, lambda x: round(float(x), 1)),

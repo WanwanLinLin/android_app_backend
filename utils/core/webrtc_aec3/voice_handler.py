@@ -40,44 +40,6 @@ class AsyncWavReader:
 
     async def open(self):
         self.fh = await aiofiles.open(self.path, "rb")
-        
-        # 读取 RIFF 头
-        riff = await self.fh.read(12)
-        if riff[:4] != b'RIFF' or riff[8:12] != b'WAVE':
-            raise ValueError("不是有效的 WAV 文件")
-
-        # 循环解析 chunk
-        while self.conn.is_active:
-            chunk_header = await self.fh.read(8)
-            if len(chunk_header) < 8:
-                raise ValueError("未找到 data chunk")
-            
-            chunk_id, chunk_size = struct.unpack('<4sI', chunk_header)
-            
-            if chunk_id == b'fmt ':
-                # 读取 fmt 的基本信息（至少 16 字节）
-                fmt_data = await self.fh.read(16)
-                audio_format, channels, sample_rate, byte_rate, block_align, bits_per_sample = struct.unpack('<HHIIHH', fmt_data)
-                if audio_format != 1:
-                    raise ValueError("仅支持 PCM 格式")
-                # 根据实际声道数更新每帧字节数
-                self.frame_bytes = self.frame_size * channels * (bits_per_sample // 8)
-                # 跳过 fmt 剩余部分（如果有扩展）
-                if chunk_size > 16:
-                    await self.fh.seek(chunk_size - 16, 1)
-            
-            elif chunk_id == b'data':
-                # 此时文件指针正好位于 data 内容的起始处
-                self.data_offset = await self.fh.tell()
-                break  # 找到 data，退出循环
-            
-            else:
-                # 其他块（如 fact, bext, list 等）直接跳过
-                await self.fh.seek(chunk_size, 1)
-
-        # 如果循环结束仍未 break，说明没有 data 块
-        if self.data_offset == 0:
-            raise ValueError("文件中没有 data 块")
 
     async def read_frame(self):
         data = await self.fh.read(self.frame_bytes)
@@ -201,38 +163,42 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
     while conn.is_active:
         data = await websocket.receive_bytes()
         conn.audio_chunk_queue.put((data, 1))
-        # # ---- Auto-detect framed protocol on first packet ----
-        # if not conn.use_framed_protocol and data[:4] == FRAME_MAGIC:
-        #     conn.use_framed_protocol = True
-        #     LOG("[INFO] Detected framed (MICK) protocol from client", "DEBUG")
 
-        # if conn.use_framed_protocol:
-        #     # ---- Framed protocol: parse header, extract metadata ----
-        #     conn.framed_partial += data
 
-        #     # while len(conn.framed_partial) >= FRAME_HEADER_SIZE:
-        #     if 1:
-        #         # Parse header
-        #         magic, timestamp_ms, last_played_seq, seq, audio_len = struct.unpack_from(
-        #             ">4sIIIH", conn.framed_partial, 0
-        #         )
-        #         print(f"last_played_seq is {last_played_seq}")
-        #         if magic != FRAME_MAGIC:
-        #             # Corrupted — skip one byte and retry
-        #             conn.framed_partial = conn.framed_partial[1:]
-        #             continue
+# async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+#     """Send TTS/playback audio to client, storing each frame in far_end_buffer
+#     with a monotonic send_seq for later alignment."""
+#     while conn.is_active:
+#         if not conn.tts_path_queue.empty():
+#             file_path = conn.tts_path_queue.get()
+#             reader = AsyncWavReader(
+#                 path=file_path,
+#                 frame_size=160,
+#                 conn=conn
+#             )
+#             await reader.open()
+#             while conn.is_active:
+#                 if conn.status == 1: break  # 打断tts数据传输
+#                 data1 = await reader.read_frame()
+#                 if len(data1) < 160 * 2:
+#                     # Last partial frame
+#                     await websocket.send_bytes(data1)
+#                     conn.send_seq += 1
+#                     conn.far_end_buffer[conn.send_seq] = data1
+#                     conn.far_end_seq_list.append(conn.send_seq)
+#                     break
 
-        #         total_len = FRAME_HEADER_SIZE + audio_len
-        #         if len(conn.framed_partial) < total_len:
-        #             break  # wait for more data
+#                 await websocket.send_bytes(data1)
+#                 conn.send_seq += 1
+#                 conn.far_end_buffer[conn.send_seq] = data1
+#                 conn.far_end_seq_list.append(conn.send_seq)
+#                 # conn.aec3_data_queue.put(data1)
 
-        #         # Extract audio and metadata
-        #         audio_data = conn.framed_partial[FRAME_HEADER_SIZE:total_len]
-        #         conn.framed_partial = conn.framed_partial[total_len:]
-        #         # nums += 1
-        #         # if nums % 50 == 0:
-        #         #     print("last_played_seq is ", last_played_seq)
-        #         conn.audio_chunk_queue.put((audio_data, last_played_seq))
+#             await reader.close()
+#             LOG(f"持续向客户端发送 {conn.send_seq} 个音频", "DEBUG")
+#         else:
+#             await asyncio.sleep(0.01)
+
 
 
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -401,10 +367,10 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                             conn.last_activity_time = time.time() * 1000
                             conn.all_point += 1
                             LOG("开始监听333...", "DEBUG")
+                            conn.status = 1
                             await websocket.send_json({"type": "interrupt"})
                             await websocket.send_json({"type": "start_listening"})
                             conn.previous_frame_list = conn.previous_frame.get_all_items()
-                            conn.status = 1
 
                         # frame_list.append(aec3_res)
                         # origin_list.append(client_chunk)
@@ -478,9 +444,9 @@ async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=
         conn.last_activity_time = time.time() * 1000
         conn.all_point += 1
         LOG("开始监听222...", "DEBUG")
+        conn.status = 1
         await websocket.send_json({"type": "start_listening"})
         conn.previous_frame_list = conn.previous_frame.get_all_items()
-        conn.status = 1
 
 
 async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -495,6 +461,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             conn.dialogue_history.append({"role": "user", "content": question})
             async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
                 for text in _text:
+                    if conn.status != 0: break
                     current_sentence += text
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
@@ -520,20 +487,6 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
 async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     current_tts_task = None
     while conn.is_active:
-        # if conn.status == 1:
-        #     while len(conn.tts_pending_queue):
-        #         t = conn.tts_pending_queue.pop()
-        #         t.cancel()
-        #         LOG(f"{datetime.now()} 取消一个tts任务！", "DEBUG")
-        # elif len(conn.tts_pending_queue):
-        #     current_tts_task = conn.tts_pending_queue.pop()
-        #     if not current_tts_task.done():
-        #         conn.tts_pending_queue.append(current_tts_task)
-        #     else:
-        #         if current_tts_task.result():
-        #             conn.tts_path_queue.put(current_tts_task.result())
-        # await asyncio.sleep(0.008)
-        
         if conn.status == 1:
             while len(conn.tts_pending_queue):
                 text = conn.tts_pending_queue.pop()

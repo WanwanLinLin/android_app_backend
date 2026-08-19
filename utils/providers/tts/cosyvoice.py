@@ -23,8 +23,8 @@ class TTSProvider(TTSProviderBase):
         for i in range(5):
             nums += 1
             start_time = time.perf_counter()
-            _save_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
-            save_path = config_data["CACHE"]["tts"] + "16k_" + str(uuid.uuid4()) + ".wav"
+            _save_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".pcm"
+            save_path = config_data["CACHE"]["tts"] + "16k_" + str(uuid.uuid4()) + ".pcm"
             # print(f"原始音频保存路径：{_save_path}")
             # print(f"采样后的音频保存路径：{save_path}")
             try:
@@ -32,7 +32,7 @@ class TTSProvider(TTSProviderBase):
                     async with session.post(self.url, json={
                         "input": text,
                         "voice": self.voice,
-                        "response_format": "wav"}) as response:
+                        "response_format": "pcm"}) as response:
                         audio_data = await response.read()
                         async with aiofiles.open(_save_path, "wb") as f:
                             await f.write(audio_data)
@@ -45,7 +45,8 @@ class TTSProvider(TTSProviderBase):
                         # # audio_16k = audio_16k + 30
                         # # 3. 导出转换后的音频文件
                         # audio_16k.export(save_path, format='wav')
-                        command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
+                        # command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
+                        command = f"ffmpeg -f s16le -ar 24000 -ac 1 -i {_save_path} -f s16le -ar 16000 {save_path}"
                         # print(f"save_path is {save_path}")
                         process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         output, error = await process.communicate()
