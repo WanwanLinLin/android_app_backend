@@ -37,15 +37,6 @@ class TTSProvider(TTSProviderBase):
                         audio_data = await response.read()
                         async with aiofiles.open(_save_path, "wb") as f:
                             await f.write(audio_data)
-                
-                        # audio = AudioSegment.from_wav(_save_path)
-                        # # 可选：确认一下原始采样率
-                        # # 2. 修改采样率为16kHz
-                        # audio_16k = audio.set_frame_rate(16000)
-                        # audio_16k = audio_16k.set_sample_width(2)
-                        # # audio_16k = audio_16k + 30
-                        # # 3. 导出转换后的音频文件
-                        # audio_16k.export(save_path, format='wav')
                         # command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
                         command = f"ffmpeg -f s16le -ar 24000 -ac 1 -i {_save_path} -f s16le -ar 16000 {save_path}"
                         # print(f"save_path is {save_path}")

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+import base64
 import aiohttp
 import numpy as np
 from typing import Optional, Tuple, List
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from utils.providers.asr.base import ASRProviderBase
 from typing import Dict
 from utils.getLogs import LOG
+from setting import config_data
 
 TAG = __name__
 
@@ -20,9 +22,8 @@ class ASRProvider(ASRProviderBase):
         self.url = config.get("url")
     
     async def speech_to_text(self, file_path: str, conn):
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.url,
-                                    json={
+        if config_data["SERVICES"][0]["host_ip"] in self.url:
+            input_data = {
                     "messages": [
                         {
                             "role": "user",
@@ -36,7 +37,29 @@ class ASRProvider(ASRProviderBase):
                             ]
                         }
                     ]
-                }) as _resp:
+                }
+        else:
+            with open(file_path, "rb") as f:
+                audio_data = f.read()
+            base64_audio = base64.b64encode(audio_data).decode('utf-8')
+            input_data = {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "audio_url",
+                                    "audio_url": {
+                                        "url": f"data:audio/wav;base64,{base64_audio}"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(self.url,
+                                    json=input_data) as _resp:
                 resp = await _resp.json()
                 LOG(f"{TAG} resp is {resp}", "DEBUG")
                 text = resp["choices"][0]["message"]["content"]
