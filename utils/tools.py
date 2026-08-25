@@ -1,5 +1,7 @@
 from typing import Optional
 
+import aiofiles
+
 
 def extract_json_from_response(response: str) -> Optional[str]:
         """
@@ -47,3 +49,24 @@ def extract_json_from_response(response: str) -> Optional[str]:
                 json_str = cleaned[json_start:json_end]
         
         return json_str
+    
+
+class AsyncWavReader:
+    def __init__(self, path, frame_size, conn):
+        self.path = path
+        self.frame_size = frame_size          # 采样点数（如 1024）
+        self.fh = None
+        self.data_offset = 0
+        self.frame_bytes = frame_size * 2     # 默认单声道 16bit，但会在 open 中根据声道数更新
+        self.conn = conn
+
+    async def open(self):
+        self.fh = await aiofiles.open(self.path, "rb")
+
+    async def read_frame(self):
+        data = await self.fh.read(self.frame_bytes)
+        return data
+
+    async def close(self):
+        if self.fh:
+            await self.fh.close()

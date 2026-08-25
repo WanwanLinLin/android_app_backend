@@ -142,7 +142,7 @@ class ConnectionObjectCustomAec3:
         
         # llm and tts and asr
         self.llm_queue = Queue()
-        self.tts_path_queue = Queue()
+        self.tts_data_queue = Queue()
         self.tts_text_queue = Queue()
         self.tts_pending_queue = deque()
         self.dialogue_history = []
@@ -165,73 +165,14 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
         conn.audio_chunk_queue.put((data, 1))
 
 
-# async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
-#     """Send TTS/playback audio to client, storing each frame in far_end_buffer
-#     with a monotonic send_seq for later alignment."""
-#     while conn.is_active:
-#         if not conn.tts_path_queue.empty():
-#             file_path = conn.tts_path_queue.get()
-#             reader = AsyncWavReader(
-#                 path=file_path,
-#                 frame_size=160,
-#                 conn=conn
-#             )
-#             await reader.open()
-#             while conn.is_active:
-#                 if conn.status == 1: break  # 打断tts数据传输
-#                 data1 = await reader.read_frame()
-#                 if len(data1) < 160 * 2:
-#                     # Last partial frame
-#                     await websocket.send_bytes(data1)
-#                     conn.send_seq += 1
-#                     conn.far_end_buffer[conn.send_seq] = data1
-#                     conn.far_end_seq_list.append(conn.send_seq)
-#                     break
-
-#                 await websocket.send_bytes(data1)
-#                 conn.send_seq += 1
-#                 conn.far_end_buffer[conn.send_seq] = data1
-#                 conn.far_end_seq_list.append(conn.send_seq)
-#                 # conn.aec3_data_queue.put(data1)
-
-#             await reader.close()
-#             LOG(f"持续向客户端发送 {conn.send_seq} 个音频", "DEBUG")
-#         else:
-#             await asyncio.sleep(0.01)
-
-
-
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Send TTS/playback audio to client, storing each frame in far_end_buffer
     with a monotonic send_seq for later alignment."""
     while conn.is_active:
-        if not conn.tts_path_queue.empty():
-            file_path = conn.tts_path_queue.get()
-            reader = AsyncWavReader(
-                path=file_path,
-                frame_size=160,
-                conn=conn
-            )
-            await reader.open()
-            while conn.is_active:
-                if conn.status == 1: break  # 打断tts数据传输
-                data1 = await reader.read_frame()
-                if len(data1) < 160 * 2:
-                    # Last partial frame
-                    await websocket.send_bytes(data1)
-                    conn.send_seq += 1
-                    conn.far_end_buffer[conn.send_seq] = data1
-                    conn.far_end_seq_list.append(conn.send_seq)
-                    break
-
+        if not conn.tts_data_queue.empty():
+            data1 = conn.tts_data_queue.get()
+            if conn.status == 0:
                 await websocket.send_bytes(data1)
-                conn.send_seq += 1
-                conn.far_end_buffer[conn.send_seq] = data1
-                conn.far_end_seq_list.append(conn.send_seq)
-                # conn.aec3_data_queue.put(data1)
-
-            await reader.close()
-            LOG(f"持续向客户端发送 {conn.send_seq} 个音频", "DEBUG")
         else:
             await asyncio.sleep(0.01)
 
@@ -502,7 +443,7 @@ async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCusto
                 current_tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(text, conn), name=text)
             elif current_tts_task.done():
                 if current_tts_task.result():
-                    conn.tts_path_queue.put(current_tts_task.result())
+                    # conn.tts_data_queue.put(current_tts_task.result())
                     current_tts_task = None
             else:
                 ...

@@ -11,6 +11,7 @@ from pydub import AudioSegment
 from typing import Dict
 from utils.getLogs import LOG
 from setting import config_data
+from utils.tools import AsyncWavReader
 
 
 class TTSProvider(TTSProviderBase):
@@ -50,7 +51,24 @@ class TTSProvider(TTSProviderBase):
                         # print(f"save_path is {save_path}")
                         process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         output, error = await process.communicate()
-                        LOG(f"合成的文本：{text} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")
+                        LOG(f"合成的文本：{text} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")            
+                        reader = AsyncWavReader(
+                            path=save_path,
+                            frame_size=160,
+                            conn=conn
+                        )
+                        await reader.open()
+                        while conn.is_active:
+                            if conn.status == 1: break  # 打断tts数据传输
+                            data1 = await reader.read_frame()
+                            if len(data1) < 160 * 2:
+                                # Last partial frame
+                                conn.tts_data_queue.put(data1)
+                                break
+
+                            conn.tts_data_queue.put(data1)
+
+                        await reader.close()
                         return save_path
             except Exception as e:
                 LOG(f"error: 合成 {text} 报错：{e}。重试第 {nums} 次。", "DEBUG")
