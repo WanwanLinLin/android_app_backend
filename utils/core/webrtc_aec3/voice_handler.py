@@ -17,6 +17,7 @@ import random
 import aiohttp
 import aiofiles
 import struct
+import opuslib_next
 from collections import OrderedDict, deque
 from pydub import AudioSegment
 from pyaec3.api.PyAec3Lib import PyAec3
@@ -123,6 +124,8 @@ class ConnectionObjectCustomAec3:
         self.last_activity_time = 0.0
         self.client_voice_stop = False
         self.previous_frame_list = []
+        self.opus_decoder = opuslib_next.Decoder(16000, 1)
+        self.opus_encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
 
         # aec config
         self.pa = PyAec3()
@@ -161,8 +164,10 @@ class ConnectionObjectCustomAec3:
 async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Receive audio from client. Auto-detects framed (MICK) vs raw PCM."""
     while conn.is_active:
-        data = await websocket.receive_bytes()
-        conn.audio_chunk_queue.put((data, 1))
+        data1 = await websocket.receive_bytes()
+        pcm_frame = conn.opus_decoder.decode(data1, 160)
+        # print(f"{datetime.now()} 接收到一帧音频： {len(data1)} || 解码后的长度 {len(pcm_frame)}")
+        conn.audio_chunk_queue.put((pcm_frame, 1))
 
 
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -172,7 +177,10 @@ async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3
         if not conn.tts_data_queue.empty():
             data1 = conn.tts_data_queue.get()
             if conn.status == 0:
-                await websocket.send_bytes(data1)
+                # await websocket.send_bytes(data1)
+                frame_data = conn.opus_encoder.encode(data1, 320)
+                print(f"{datetime.now()} before is {len(data1)} || after {len(frame_data)}")
+                await websocket.send_bytes(frame_data)
         else:
             await asyncio.sleep(0.01)
 

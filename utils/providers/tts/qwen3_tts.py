@@ -53,7 +53,7 @@ class TTSProvider(TTSProviderBase):
                     LOG(f"合成的文本：{text} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")
                     reader = AsyncWavReader(
                         path=save_path,
-                        frame_size=160,
+                        frame_size=320,
                         conn=conn
                     )
                     await reader.open()
@@ -62,7 +62,8 @@ class TTSProvider(TTSProviderBase):
                         data1 = await reader.read_frame()
                         if len(data1) < 160 * 2:
                             # Last partial frame
-                            conn.tts_data_queue.put(data1)
+                            # data1 += b'\x00' * (320 - len(data1))
+                            # conn.tts_data_queue.put(data1)
                             break
 
                         conn.tts_data_queue.put(data1)

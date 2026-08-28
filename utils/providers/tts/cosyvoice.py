@@ -54,7 +54,7 @@ class TTSProvider(TTSProviderBase):
                             data1 = await reader.read_frame()
                             if len(data1) < 160 * 2:
                                 # Last partial frame
-                                conn.tts_data_queue.put(data1)
+                                # conn.tts_data_queue.put(data1)
                                 break
 
                             conn.tts_data_queue.put(data1)
