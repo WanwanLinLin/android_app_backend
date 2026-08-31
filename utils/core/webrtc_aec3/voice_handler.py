@@ -199,19 +199,6 @@ async def recognize_asr_file(websocket: WebSocket, conn: ConnectionObjectCustomA
             await asyncio.sleep(0.01)
 
 
-def _get_aligned_far_end(conn: ConnectionObjectCustomAec3, last_played_seq):
-    """Look up the far-end reference frame for the given playback sequence.
-
-    Uses last_played_seq minus AEC_DELAY_OFFSET to account for acoustic
-    delay between speaker output and microphone pickup.
-    """
-    # Acoustic delay offset: ~2 frames (20ms) at 16kHz/10ms frames.
-    # Tune this based on your hardware setup.
-    # print("lastPlayedSeq is : ", last_played_seq)
-    target_seq = max(1, last_played_seq - AEC_DELAY_OFFSET)
-    return conn.far_end_buffer.get(target_seq, None)
-
-
 async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Process mic audio with AEC+VAD using aligned far-end reference."""
     nums = 0

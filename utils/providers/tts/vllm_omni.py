@@ -25,6 +25,7 @@ class TTSProvider(TTSProviderBase):
     def __init__(self, config: Dict):
         self.url = config.get("url")
         self.voice = config.get("voice")
+        self.additional_param = config.get("additional_param", {})
     
     def custom_text_front(self, text):
         t1 = self.remove_emoji_regex(text)
@@ -157,6 +158,8 @@ class TTSProvider(TTSProviderBase):
                     "response_format": "pcm",
                     "non_streaming_mode": False
                 }
+                if self.additional_param:
+                    input_data.update(self.additional_param)
                 nums = 0
                 state = None
                 buffer = bytearray()
@@ -169,8 +172,8 @@ class TTSProvider(TTSProviderBase):
                         # 异步迭代二进制数据块
                         async for chunk in response.aiter_bytes(chunk_size=320):
                             if chunk:
-                                chunk_nums += 1
-                                if chunk_nums <= 25: continue
+                                # chunk_nums += 1
+                                # if chunk_nums <= 24: continue
                                 converted, state = audioop.ratecv(
                                     chunk, 2, 1, 24000, 16000, state
                                 )

@@ -80,6 +80,7 @@ class _GetTTSList2(BaseModel):
     tag: Union[str, None]
     voice: Union[str, None]
     apikey: Union[str, None]
+    additional_param: Union[dict, None]
     
     class Config:
         from_attributes = True

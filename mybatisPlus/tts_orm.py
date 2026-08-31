@@ -22,6 +22,7 @@ class _GetTTSList(BaseModel):
     tag: Union[str, None]
     voice: Union[str, None]
     apikey: Union[str, None]
+    additional_param: Union[dict, None]
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
     

@@ -95,6 +95,7 @@ class TTSFactories(Base):
     voice = Column(String(128), index=True, comment="音色名称")
     apikey = Column(String(128), comment="请求密钥")
     create_time = Column(DateTime, default=lambda: beijing_now())
+    additional_param = Column(JSON, comment="大模型参数", default="{}")
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     
 
