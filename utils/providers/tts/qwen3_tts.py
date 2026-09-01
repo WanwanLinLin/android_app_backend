@@ -20,6 +20,7 @@ class TTSProvider(TTSProviderBase):
     def __init__(self, config: Dict):
         self.url = config.get("url")
         self.voice = config.get("voice")
+        self.additional_param = config.get("additional_param", {})
         
     async def text_to_speak(self, text, conn):
         nums = 0
@@ -35,9 +36,9 @@ class TTSProvider(TTSProviderBase):
                     "voice": self.voice,
                     "speed": 1.0,
                     "response_format": "pcm",
-                    "language": "Chinese",
-                    "instruct": "请用纯正广东话朗读" 
                 }
+                if self.additional_param:
+                    request_json.update(self.additional_param)
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
                     async with session.post(self.url, json=request_json) as response:
                         if response.status != 200: 
