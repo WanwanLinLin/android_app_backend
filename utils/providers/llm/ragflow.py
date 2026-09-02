@@ -1,4 +1,5 @@
 import json
+import time
 import httpx
 import openai
 import aiohttp
@@ -33,6 +34,8 @@ class LLMProvider(LLMProviderBase):
                 self.session_id = session_id
     
     async def response(self, session_id, dialogue, **kwargs):
+        pkg_nums = 0
+        start_time = time.perf_counter()
         if not self.session_id:
             await self.create_session()
             LOG(f"ragflow 成功创建新的session_id: {self.session_id}")
@@ -59,6 +62,9 @@ class LLMProvider(LLMProviderBase):
                                 data_dict = json.loads(json_str)
                                 if 'data' in data_dict and data_dict['data']!=True and  'answer' in data_dict['data']:
                                     if "running_status" in data_dict['data']: continue  # 不显示插件检索部分
+                                    pkg_nums += 1
+                                    if pkg_nums == 1:
+                                        LOG(f"ragflow api获取首token时间: {time.perf_counter() - start_time} 秒", "DEBUG")
                                     # print("data_dict['data'] is ", data_dict['data'])
                                     if data_dict["code"] == 500:
                                         output = "知识库未找到答案！"

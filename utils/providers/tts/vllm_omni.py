@@ -172,7 +172,8 @@ class TTSProvider(TTSProviderBase):
                         # 异步迭代二进制数据块
                         async for chunk in response.aiter_bytes(chunk_size=320):
                             if chunk:
-                                # chunk_nums += 1
+                                chunk_nums += 1
+                                # # 跳过静音数据
                                 # if chunk_nums <= 24: continue
                                 converted, state = audioop.ratecv(
                                     chunk, 2, 1, 24000, 16000, state
