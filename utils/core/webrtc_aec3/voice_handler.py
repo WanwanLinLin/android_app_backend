@@ -18,6 +18,7 @@ import aiohttp
 import aiofiles
 import struct
 import opuslib_next
+from copy import deepcopy
 from collections import OrderedDict, deque
 from pydub import AudioSegment
 from pyaec3.api.PyAec3Lib import PyAec3
@@ -106,6 +107,7 @@ class ConnectionObjectCustomAec3:
         self.all_point = 0
         self.all_silence_duration = time.time()
         self.asr_pending_queue = Queue()
+        self.current_language = ""   # 当前语言，用于多语种语音合成
 
         # sliding window for voice detection
         self.client_voice_window = deque(maxlen=60)
@@ -401,7 +403,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
                     await asyncio.sleep(0.005)
-                    if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
+                    if current_sentence and len(current_sentence) > 15 and current_sentence[-1] in conn.punctuation_separator:
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft(current_sentence)
                         current_sentence = ""
@@ -434,7 +436,8 @@ async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCusto
             if not current_tts_task:
                 text = conn.tts_pending_queue.pop()
                 # print(f"创建任务：{text}")
-                current_tts_task = asyncio.create_task(conn.tts_engine.text_to_speak(text, conn), name=text)
+                tts_engine = deepcopy(conn.tts_engine)  # 待优化
+                current_tts_task = asyncio.create_task(tts_engine.text_to_speak(text, conn), name=text)
             elif current_tts_task.done():
                 if current_tts_task.result():
                     # conn.tts_data_queue.put(current_tts_task.result())

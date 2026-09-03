@@ -45,7 +45,7 @@ class TTSProvider(TTSProviderBase):
                         LOG(f"合成的文本：{text} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")            
                         reader = AsyncWavReader(
                             path=save_path,
-                            frame_size=160,
+                            frame_size=320,
                             conn=conn
                         )
                         await reader.open()

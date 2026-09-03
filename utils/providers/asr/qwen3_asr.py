@@ -69,4 +69,5 @@ class ASRProvider(ASRProviderBase):
                 # 2. 分割出识别文本
                 result = text.split("<asr_text>")[1]  # 取标签后面的内容
                 os.remove(file_path)
+                conn.current_language = language
                 return {"code": 200, "data": result, "language": language}
