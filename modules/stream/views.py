@@ -82,25 +82,44 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
-    conn.chunk_asr_client = await websockets.connect(asr_config.get("params").get("stream_asr_url"))
     # conn.chunk_asr_client = await websockets.connect("ws://192.168.3.36:18113/v1/stream/chunk")
-    try:
-        await asyncio.gather(
-            receive_audio_data(websocket, conn),
-            webrtc_aec3(websocket, conn),
-            send_audio_data(websocket, conn),
-            recognize_asr_file(websocket, conn),
-            get_llm_result(websocket, conn),
-            get_tts_path_monitor(websocket, conn),
-            send_asr_chunk(websocket, conn),
-        )
-    except WebSocketDisconnect as e:
-        conn.is_active = False
-        conn.pa = None
-        conn.frv = None
-        await conn.chunk_asr_client.close()
-        await asyncio.sleep(1)  # 等待资源释放
-        conn = None
+    if asr_config.get("params").get("stream_asr_url", ""):
+        try:
+            conn.chunk_asr_client = await websockets.connect(asr_config.get("params").get("stream_asr_url"))
+            await asyncio.gather(
+                receive_audio_data(websocket, conn),
+                webrtc_aec3(websocket, conn),
+                send_audio_data(websocket, conn),
+                recognize_asr_file(websocket, conn),
+                get_llm_result(websocket, conn),
+                get_tts_path_monitor(websocket, conn),
+                send_asr_chunk(websocket, conn),
+            )
+        except WebSocketDisconnect as e:
+            conn.is_active = False
+            conn.pa = None
+            conn.frv = None
+            await conn.chunk_asr_client.close()
+            await asyncio.sleep(1)  # 等待资源释放
+            conn = None
+    else:
+        # server_vad模式
+        try:
+            # asyncio.create_task(conn.asr_engine.initialize(websocket, conn))
+            # await conn.asr_engine.initialize(websocket, conn)
+            await asyncio.gather(
+                conn.asr_engine.initialize(websocket, conn),
+                receive_audio_data(websocket, conn),
+                get_llm_result(websocket, conn),
+                get_tts_path_monitor(websocket, conn),
+                send_audio_data(websocket, conn),
+            )
+        except WebSocketDisconnect as e:
+            conn.is_active = False
+            conn.pa = None
+            conn.frv = None
+            await asyncio.sleep(1)  # 等待资源释放
+            conn = None
         # print(f"manba out {e}")
     
     # except Exception as e:
