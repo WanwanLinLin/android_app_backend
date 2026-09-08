@@ -151,7 +151,7 @@ class ConnectionObjectCustomAec3:
         self.tts_text_queue = Queue()
         self.tts_pending_queue = deque()
         self.dialogue_history = []
-        self.punctuation_separator = ['，', '。', '：', '！', '、', '。\n\n', '。\n', '?', '？', '。', "？", ","]
+        self.punctuation_separator = ['，', '。', '：', '！', '、', '。\n\n', '。\n', '?', '？', '。', "？", ",", ".", "、"]
         self.llm_engine = None
         self.tts_engine = None
         self.asr_engine = None
@@ -403,7 +403,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
                     await asyncio.sleep(0.005)
-                    if current_sentence and len(current_sentence) > 15 and current_sentence[-1] in conn.punctuation_separator:
+                    if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft(current_sentence)
                         current_sentence = ""

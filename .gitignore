@@ -8,3 +8,4 @@ logs
 models
 *.onnx
 static
+--git-common-dir

@@ -195,7 +195,7 @@ class TTSProvider(TTSProviderBase):
                             if chunk:
                                 chunk_nums += 1
                                 # # 跳过静音数据
-                                if chunk_nums <= 10: continue
+                                if chunk_nums <= 20: continue
                                 converted, state = audioop.ratecv(
                                     chunk, 2, 1, 24000, 16000, state
                                 )
@@ -228,7 +228,7 @@ class TTSProvider(TTSProviderBase):
         flag = True
         start_time = time.perf_counter()
         while 1:
-            if len(self.delay_q) > 40: break
+            if len(self.delay_q) > 35: break
             else: await asyncio.sleep(0.001)
         while self.running or len(self.delay_q):
             if len(self.delay_q):
