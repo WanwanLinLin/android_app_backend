@@ -390,13 +390,18 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
     if conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None):
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
+    chunk_nums = 0
     while conn.is_active:
         if not conn.llm_queue.empty():
             question = conn.llm_queue.get()
             all_reply = ""
             current_sentence = ""
             conn.dialogue_history.append({"role": "user", "content": question})
+            start_time = time.perf_counter()
             async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
+                chunk_nums += 1
+                if chunk_nums == 1:
+                    LOG(f"{conn.llm_engine.name} 首token回复时间：{round((time.perf_counter() - start_time), 5)} 秒", "DEBUG")
                 for text in _text:
                     if conn.status != 0: break
                     current_sentence += text
@@ -410,6 +415,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 if conn.status != 0:
                     await websocket.send_json({"type": "finish"})
                     conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+                    chunk_nums = 0
                     LOG("LLM 回复被打断...", "DEBUG")
                     break
             # 处理剩余语句
@@ -417,6 +423,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 conn.tts_pending_queue.appendleft(current_sentence)
             conn.dialogue_history.append({"role": "assistant", "content": all_reply})
             await websocket.send_json({"type": "finish"})
+            chunk_nums = 0
         else:
             await asyncio.sleep(0.01)
 

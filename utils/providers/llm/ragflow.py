@@ -10,6 +10,7 @@ from utils.getLogs import LOG
 
 class LLMProvider(LLMProviderBase):
     def __init__(self, config):
+        self.name = config.get("desc", "")
         self.api_key = config.get("apikey")
         self.session_id = None
         self.url = config.get("url")

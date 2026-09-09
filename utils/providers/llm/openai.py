@@ -7,6 +7,7 @@ from utils.getLogs import LOG
 
 class LLMProvider(LLMProviderBase):
     def __init__(self, config):
+        self.name = config.get("desc", "")
         self.model_name = config.get("params").get("model_name")
         self.api_key = config.get("apikey")
         if "base_url" in config.get("params"):

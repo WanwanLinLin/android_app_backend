@@ -9,6 +9,7 @@ from utils.getLogs import LOG
 
 class LLMProvider(LLMProviderBase):
     def __init__(self, config):
+        self.name = config.get("desc", "")
         self.model_name = config.get("params").get("model_name")
         self.api_key = config.get("apikey")
         self.response_language = config.get("params").get("response_language", "zh-cn")   # zh-cn, en, zh-hk
