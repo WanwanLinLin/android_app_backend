@@ -30,51 +30,34 @@ LANG_MAP = {
 
 class ASRProvider(ASRProviderBase):
     def __init__(self, config: Dict):
-        self.url = config.get("url")
+        # self.url = config.get("url")
         self.mode = "stream"
-        self.aliyun_websocket = None
+        self.qwen3_asr_websocket = None
         self.params = config.get("params")
         
     async def initialize(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
             # 对于 websockets >= 14.0，使用 additional_headers
+            url = conn.global_config.get("asr_config").get("url").format(uid=conn.uid, apikey=conn.global_config.get("asr_config").get("apikey"))
+            print(f"url is {url}")
             async with websockets.connect(
-                self.url,
+                url,
                 additional_headers=self.params.get("headers")
-            ) as aliyun_websocket:
+            ) as qwen3_asr_websocket:
                 start_msg = {
-                    "event_id": str(uuid.uuid4()),
-                    "type": "session.update",
-                    "session": {
-                        "input_audio_format": "pcm",
-                        "sample_rate": 16000,
-                        "input_audio_transcription": {
-                        },
-                        "turn_detection": {
-                            "type": "server_vad",
-                            "threshold": 0.9,
-                            "silence_duration_ms": 1200
-                        }
-                    }
+                    "vad_max_thre": 0.9,
+                    "vad_min_thre": 0.65,
+                    "silence_threshold_ms": 1500
                 }
-                await aliyun_websocket.send(json.dumps(start_msg, ensure_ascii=False))
-                _response = await aliyun_websocket.recv()
-                response = json.loads(_response)
-                LOG(f"{TAG} receive aliyun response {response}", "DEBUG")
-                self.aliyun_websocket = aliyun_websocket
-                task_group = None
-                if response["type"] == "session.created":
-                    task_group =  asyncio.gather(
+                await qwen3_asr_websocket.send(json.dumps(start_msg, ensure_ascii=False))
+                self.qwen3_asr_websocket = qwen3_asr_websocket
+                task_group =  asyncio.gather(
                     self.send_audio_data(websocket, conn),
-                    self.receive_recognize_result(websocket, conn),
-                )
-                else:
-                    await aliyun_websocket.close()
-                    raise ValueError(response)
+                    self.receive_recognize_result(websocket, conn),)
                 while conn.is_active:
                     await asyncio.sleep(0.05)
-                await aliyun_websocket.close()
-                LOG(f"{TAG} aliyun asr 链接断开", "DEBUG")
+                await qwen3_asr_websocket.close()
+                LOG(f"{TAG} 链接断开", "DEBUG")
         except WebSocketDisconnect:
             ...
     
@@ -87,48 +70,40 @@ class ASRProvider(ASRProviderBase):
                         pcm_frame, _ = item
                     else:
                         pcm_frame = item
-                    base64_pcm =  {
-                        # "event_id": conn.event_id,
-                        "event_id": str(uuid.uuid4()),
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(pcm_frame).decode('utf-8')
-                        }
-                    await self.aliyun_websocket.send(json.dumps(base64_pcm))
-                    await asyncio.sleep(0.005)
+                    await self.qwen3_asr_websocket.send(pcm_frame)
+                    await asyncio.sleep(0.002)
                 else:
-                    await asyncio.sleep(0.005)
+                    await asyncio.sleep(0.002)
         except websockets.exceptions.ConnectionClosedOK:
             ...
     
     async def receive_recognize_result(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
             while conn.is_active:
-                data = await self.aliyun_websocket.recv()
+                data = await self.qwen3_asr_websocket.recv()
                 LOG(f"{TAG} 接收到服务端数据：{data}", "DEBUG")
                 if isinstance(data, str):
                     resp = json.loads(data)
-                    if resp["type"] == "session.updated":
-                        LOG(f"{TAG} aliyun 链接成功...", "DEBUG")
-                    elif resp["type"] == "input_audio_buffer.speech_started":
+                    if resp["type"] == "vad_start":
                         LOG(f"{TAG} 开始监听", "DEBUG")
                         conn.status = 1
                         await websocket.send_json({"type": "interrupt"})
                         await websocket.send_json({"type": "start_listening"})
-                    elif resp["type"] == "conversation.item.input_audio_transcription.text":
+                    elif resp["type"] == "chunk":
                         LOG(f"{TAG} 流式语音识别结果：{resp}", "DEBUG")
                         await websocket.send_json({
                                 "type": "chunk",
                                 "timestamp": None,
-                                "text": resp["stash"],
+                                "text": resp["text"],
                                 "language": "",
                                 "latency_ms": None,
                                 "chunk_count": None
                             })
-                    elif resp["type"] == "input_audio_buffer.committed":
+                    elif resp["type"] == "vad_stop":
                         LOG(f"{TAG} 停止监听", "DEBUG")
                         conn.status = 0
                         await websocket.send_json({"type": "stop_listening"})
-                    elif resp["type"] == "conversation.item.input_audio_transcription.completed":
+                    elif resp["type"] == "transcription":
                         conn.in_recognize = True
                         LOG(f"{TAG} 语音识别完成 {resp}", "DEBUG")
                         if resp["language"] in LANG_MAP:
@@ -141,11 +116,10 @@ class ASRProvider(ASRProviderBase):
                         # final_text = replace_special_keyword(_final_text)
                         await websocket.send_json({
                                 "type": "transcription",
-                                "text": resp["transcript"],
+                                "text": resp["text"],
                                 "language": lang_type
-                            }
-                        )
-                        conn.llm_queue.put(resp["transcript"])
+                                })
+                        conn.llm_queue.put(resp["text"])
                         conn.in_recognize = False
                 await asyncio.sleep(0.003)
         except websockets.exceptions.ConnectionClosedOK:
