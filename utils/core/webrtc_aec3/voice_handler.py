@@ -195,7 +195,7 @@ async def recognize_asr_file(websocket: WebSocket, conn: ConnectionObjectCustomA
             resp = await conn.asr_engine.speech_to_text(file_path, conn)
             LOG(f"语音识别结果: {resp}", "DEBUG")
             await websocket.send_json({"type": "transcription", "text": resp["data"], "language": resp["language"]})
-            conn.llm_queue.put(resp["data"])
+            if resp["data"]: conn.llm_queue.put(resp["data"])
             conn.in_recognize = False
         else:
             await asyncio.sleep(0.01)
@@ -401,7 +401,9 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
                 chunk_nums += 1
                 if chunk_nums == 1:
-                    LOG(f"{conn.llm_engine.name} 首token回复时间：{round((time.perf_counter() - start_time), 5)} 秒", "DEBUG")
+                    cost_time = round((time.perf_counter() - start_time), 5)
+                    LOG(f"{conn.llm_engine.name} 首token回复时间：{cost_time} 秒", "DEBUG")
+                    await websocket.send_json({"type": "analysis", "text": f"response in {cost_time} seconds"})
                 for text in _text:
                     if conn.status != 0: break
                     current_sentence += text

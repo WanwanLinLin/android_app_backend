@@ -119,7 +119,7 @@ class ASRProvider(ASRProviderBase):
                                 "text": resp["text"],
                                 "language": lang_type
                                 })
-                        conn.llm_queue.put(resp["text"])
+                        if resp["text"]: conn.llm_queue.put(resp["text"])
                         conn.in_recognize = False
                 await asyncio.sleep(0.003)
         except websockets.exceptions.ConnectionClosedOK:
