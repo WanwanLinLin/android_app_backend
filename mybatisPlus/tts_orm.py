@@ -1,13 +1,13 @@
 import json
 import redis
 import requests
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from pydantic import BaseModel, field_validator
 from typing import Union, List, Dict
 
 from datetime import datetime
 from datetime import datetime, timedelta
-from .tables.industrial_park import (TTSFactories)
+from .tables.industrial_park import (TTSFactories, TTScache)
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -75,3 +75,22 @@ async def get_one_voice(id: int):
                 return data
             return None
 
+
+async def handle_audio_file(**kwargs):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():  # 开启事务
+            if kwargs.get("op"):
+                audio_file = await session.scalar(
+                    select(TTScache).filter(TTScache.tag==kwargs.get("tag"), TTScache.sec_text==kwargs.get("sec_text"),
+                                            TTScache.voice==kwargs.get("voice"), TTScache.format==kwargs.get("format"), TTScache.sr==kwargs.get("sr"),
+                                            func.abs(TTScache.speed - kwargs.get("speed")) < 0.0001))
+                if audio_file:
+                    return audio_file.save_path
+                return 0
+            else:
+                del kwargs["op"]
+                new_file = TTScache(**kwargs)
+                session.add(new_file)
+                return 1
+    
+    return

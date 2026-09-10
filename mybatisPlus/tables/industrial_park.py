@@ -148,3 +148,23 @@ class FigureFactories(Base):
     resolution = Column(JSON, default="[]", comment="支持的分辨率")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    
+
+class TTScache(Base):
+    """
+    TTS缓存表，采用md5加密合成文本
+    """
+    __tablename__ = "TTScache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tag = Column(String(64), index=True, comment="tts推理后端名称")
+    voice = Column(String(64), index=True, comment="音色")
+    sec_text = Column(String(512), index=True, comment="加密文本")
+    format = Column(String(32), index=True, comment="音频格式，如pcm/wav/mp3等")
+    speed = Column(Float, comment="语速")
+    sr = Column(Integer, comment="采样率", default=16000, index=True)
+    speed = Column(Float, comment="语速", default=1.0, index=True)
+    save_path = Column(String(1024), comment="缓存路径")
+    recog_text = Column(Text(length=65535, collation='utf8mb4_general_ci'), comment="输入文本")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())

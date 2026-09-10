@@ -1,3 +1,4 @@
+import hashlib
 from typing import Optional
 
 import aiofiles
@@ -70,3 +71,11 @@ class AsyncWavReader:
     async def close(self):
         if self.fh:
             await self.fh.close()
+
+
+def md5_hash(text):
+    md5_hasher = hashlib.md5()
+    md5_hasher.update(text.encode('utf-8'))
+    hashed_text = md5_hasher.hexdigest()
+
+    return hashed_text
