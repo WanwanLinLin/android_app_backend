@@ -34,6 +34,7 @@ class ASRProvider(ASRProviderBase):
         self.mode = "stream"
         self.qwen3_asr_websocket = None
         self.params = config.get("params")
+        self.use_server_aec = config.get("params").get("use_server_aec", None)
         
     async def initialize(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
@@ -70,7 +71,17 @@ class ASRProvider(ASRProviderBase):
                         pcm_frame, _ = item
                     else:
                         pcm_frame = item
-                    await self.qwen3_asr_websocket.send(pcm_frame)
+                    
+                    if not conn.aec3_data_queue.empty() and self.use_server_aec:
+                        a = conn.aec3_data_queue.get()
+                        chunk1 = np.frombuffer(a, dtype=np.int16)
+                        chunk2 = np.frombuffer(pcm_frame, dtype=np.int16)
+                        aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)   
+                    else:
+                        aec3_res =  pcm_frame
+                    
+                    await self.qwen3_asr_websocket.send(aec3_res)
+                    # await self.qwen3_asr_websocket.send(pcm_frame)
                     await asyncio.sleep(0.002)
                 else:
                     await asyncio.sleep(0.002)

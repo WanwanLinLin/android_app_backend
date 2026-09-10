@@ -234,6 +234,8 @@ class TTSProvider(TTSProviderBase):
             if len(self.delay_q):
                 audio = self.delay_q.popleft()
                 conn.tts_data_queue.put(audio)
+                conn.aec3_data_queue.put(audio[:320])
+                conn.aec3_data_queue.put(audio[320:])
                 if flag:
                     push_first_frame_time = time.perf_counter() - start_time
                     flag = False

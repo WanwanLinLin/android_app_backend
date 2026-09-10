@@ -131,6 +131,7 @@ class ConnectionObjectCustomAec3:
 
         # aec config
         self.pa = PyAec3()
+        self.aec3_data_queue = Queue()
 
         # ---- NEW: far-end reference buffer for aligned AEC ----
         # Maps send_seq -> raw audio bytes (the far-end reference)
@@ -232,17 +233,17 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
 
                     # if far_end_audio is not None:
                     if 1:
-                        # if not conn.aec3_data_queue.empty():
-                        #     if nums < 1: nums += 1;continue
-                        #     a = conn.aec3_data_queue.get()
-                        #     chunk1 = np.frombuffer(a, dtype=np.int16)
-                        #     chunk2 = np.frombuffer(_client_chunk, dtype=np.int16)
-                        #     aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
-                        # else:
-                        #     aec3_res = _client_chunk
+                        if not conn.aec3_data_queue.empty():
+                            a = conn.aec3_data_queue.get()
+                            chunk1 = np.frombuffer(a, dtype=np.int16)
+                            chunk2 = np.frombuffer(_client_chunk, dtype=np.int16)
+                            aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
+                        else:
+                            aec3_res = _client_chunk
                             
                         # client_chunk = _client_chunk
-                        aec3_res = _client_chunk
+                        
+                        # aec3_res = _client_chunk
 
                         # aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
                         chunk3 = np.frombuffer(aec3_res, dtype=np.int16)

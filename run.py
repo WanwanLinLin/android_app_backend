@@ -22,7 +22,7 @@ from modules.video.views import router as video_router
 from modules.figure.views import router as figure_router
 from utils.apierror import JwtAuthError
 
-app = FastAPI()
+app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1")
 
 app.add_middleware(
         CORSMiddleware,
