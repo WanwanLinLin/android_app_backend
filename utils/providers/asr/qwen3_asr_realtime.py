@@ -72,7 +72,7 @@ class ASRProvider(ASRProviderBase):
                     else:
                         pcm_frame = item
                     
-                    if not conn.aec3_data_queue.empty() and self.use_server_aec:
+                    if not conn.aec3_data_queue.empty() and self.use_server_aec and conn.chat_mode == "aec":
                         a = conn.aec3_data_queue.get()
                         chunk1 = np.frombuffer(a, dtype=np.int16)
                         chunk2 = np.frombuffer(pcm_frame, dtype=np.int16)
@@ -92,9 +92,10 @@ class ASRProvider(ASRProviderBase):
         try:
             while conn.is_active:
                 data = await self.qwen3_asr_websocket.recv()
-                LOG(f"{TAG} 接收到服务端数据：{data}", "DEBUG")
                 if isinstance(data, str):
                     resp = json.loads(data)
+                    if resp.get("type", "") == "heartBeat": continue
+                    LOG(f"{TAG} 接收到服务端数据：{resp}", "DEBUG")
                     if resp["type"] == "vad_start":
                         LOG(f"{TAG} 开始监听", "DEBUG")
                         conn.status = 1

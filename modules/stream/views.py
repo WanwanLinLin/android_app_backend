@@ -67,6 +67,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
         config_data["MODEL_CONFIG"][0]["path"] + "cmvn_istd_stream.bin",
         16000, 10, 25, 0.9,
     )
+    conn.chat_mode = prompt.get("prompt","aec")
     all_configs = await get_source_config(llm_id=prompt.get("source_config", {}).get("model_id", None),
                                           tts_id=prompt.get("source_config", {}).get("tts_id", None),
                                           asr_id=prompt.get("source_config", {}).get("asr_id", None))
@@ -122,9 +123,10 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
             conn = None
         # print(f"manba out {e}")
     
-    # except Exception as e:
-    #     conn.pa = None
-    #     conn.frv = None
-    #     await conn.chunk_asr_client.close()
-    #     conn = None
-    #     LOG(f"客户端连接异常断开: {e}", "DEBUG")
+        except Exception as e:
+            conn.is_active = False
+            conn.pa = None
+            conn.frv = None
+            # await conn.chunk_asr_client.close()
+            conn = None
+            LOG(f"客户端连接异常断开: {e}", "DEBUG")

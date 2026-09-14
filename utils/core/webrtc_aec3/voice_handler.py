@@ -25,31 +25,8 @@ from pyaec3.api.PyAec3Lib import PyAec3
 from FireRedVadCppLib import FireRedVadCpp
 from collections import deque, OrderedDict
 from fastapi import WebSocket, WebSocketDisconnect
-from pydub import AudioSegment
-from datetime import datetime
 from setting import *
 from utils.getLogs import LOG
-
-
-class AsyncWavReader:
-    def __init__(self, path, frame_size, conn):
-        self.path = path
-        self.frame_size = frame_size          # 采样点数（如 1024）
-        self.fh = None
-        self.data_offset = 0
-        self.frame_bytes = frame_size * 2     # 默认单声道 16bit，但会在 open 中根据声道数更新
-        self.conn = conn
-
-    async def open(self):
-        self.fh = await aiofiles.open(self.path, "rb")
-
-    async def read_frame(self):
-        data = await self.fh.read(self.frame_bytes)
-        return data
-
-    async def close(self):
-        if self.fh:
-            await self.fh.close()
 
 
 class LimitedQueue:
@@ -98,6 +75,7 @@ class ConnectionObjectCustomAec3:
         self.frame_size = 320
         self.global_config = {}
         self.is_active = True
+        self.chat_mode = ""
 
         # asr
         self.all_cache = {}
@@ -166,11 +144,27 @@ class ConnectionObjectCustomAec3:
 # ============================================================
 async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Receive audio from client. Auto-detects framed (MICK) vs raw PCM."""
+    # try:
     while conn.is_active:
-        data1 = await websocket.receive_bytes()
-        pcm_frame = conn.opus_decoder.decode(data1, 160)
-        # print(f"{datetime.now()} 接收到一帧音频： {len(data1)} || 解码后的长度 {len(pcm_frame)}")
-        conn.audio_chunk_queue.put((pcm_frame, 1))
+        # data1 = await websocket.receive_bytes()
+        # pcm_frame = conn.opus_decoder.decode(data1, 160)
+        # # print(f"{datetime.now()} 接收到一帧音频： {len(data1)} || 解码后的长度 {len(pcm_frame)}")
+        # conn.audio_chunk_queue.put((pcm_frame, 1))
+        
+        message = await websocket.receive()
+        if message["type"] == "websocket.receive":
+            if "text" in message:
+                command = json.loads(message["text"])
+                LOG(f"收到客户端指令消息：{command}", "DEBUG")
+                if command["type"] == "wakeup":
+                    conn.status = 1
+                    await websocket.send_json({"type": "interrupt"})
+            elif "bytes" in message:
+                pcm_frame = conn.opus_decoder.decode(message["bytes"], 160)
+                # print(f"{datetime.now()} 接收到一帧音频： {len(data1)} || 解码后的长度 {len(pcm_frame)}")
+                conn.audio_chunk_queue.put((pcm_frame, 1))
+    # except WebSocketDisconnect as e:
+    #     LOG(f"server websocket close {e}")
 
 
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -233,7 +227,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
 
                     # if far_end_audio is not None:
                     if 1:
-                        if not conn.aec3_data_queue.empty():
+                        if (not conn.aec3_data_queue.empty()) and conn.chat_mode == "aec":
                             a = conn.aec3_data_queue.get()
                             chunk1 = np.frombuffer(a, dtype=np.int16)
                             chunk2 = np.frombuffer(_client_chunk, dtype=np.int16)
@@ -321,70 +315,6 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                                 await conn.chunk_asr_client.send(b''.join(conn.previous_frame_list))
         else:
             await asyncio.sleep(0.001)
-
-
-# async def _direct_vad(conn: ConnectionObjectCustomAec3, client_chunk, websocket=None):
-#     """Direct VAD processing (no AEC). Shared by both aligned and legacy paths."""
-#     vad_chunk = np.frombuffer(client_chunk, dtype=np.int16)
-#     vad_res = conn.frv.process_stream(vad_chunk, 160)
-
-#     if conn.collect_previous:
-#         conn.previous_frame.enqueue(client_chunk)
-#     if vad_res.confidence > conn.vad_max_thre:
-#         is_voice = True
-#     elif vad_res.confidence < conn.vad_min_thre:
-#         is_voice = False
-#     else:
-#         is_voice = conn.last_is_voice
-
-#     conn.last_is_voice = is_voice
-#     conn.client_voice_window.append(is_voice)
-#     client_have_voice = (
-#         conn.client_voice_window.count(True) >= conn.frame_window_threshold
-#     )
-
-#     if conn.client_have_voice and not client_have_voice:
-#         stop_duration = time.time() * 1000 - conn.last_activity_time
-#         if stop_duration >= conn.silence_threshold_ms:
-#             LOG("停止监听！", "DEBUG")
-#             await websocket.send_json({"type": "stop_listening"})
-#             conn.status = 0
-#             file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
-#             pcm_data = conn.previous_frame_list + conn.all_asr_data
-#             with wave.open(file_path, "wb") as wf:
-#                 wf.setnchannels(1)
-#                 wf.setsampwidth(2)
-#                 wf.setframerate(16000)
-#                 wf.writeframes(b"".join(pcm_data))
-#             conn.client_voice_stop = True
-#             conn.collect_previous = True
-#             conn.client_have_voice = False
-#             conn.all_asr_data = []
-#             conn.all_point = 0
-#             conn.asr_pending_queue.put(file_path)
-
-#     if client_have_voice:
-#         conn.collect_previous = False
-#         conn.client_have_voice = True
-#         conn.last_activity_time = time.time() * 1000
-#         conn.all_point += 1
-
-#     if conn.client_have_voice:
-#         conn.all_asr_data.append(client_chunk)
-#         if len(conn.all_asr_data) % 30 == 0:
-#             # 进行实时语音识别
-#             audio_in = b"".join(conn.previous_frame_list + conn.all_asr_data)
-#             await conn.chunk_asr_client.send(audio_in)
-
-#     if conn.all_point == 1:
-#         conn.collect_previous = False
-#         conn.client_have_voice = True
-#         conn.last_activity_time = time.time() * 1000
-#         conn.all_point += 1
-#         LOG("开始监听222...", "DEBUG")
-#         conn.status = 1
-#         await websocket.send_json({"type": "start_listening"})
-#         conn.previous_frame_list = conn.previous_frame.get_all_items()
 
 
 async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
