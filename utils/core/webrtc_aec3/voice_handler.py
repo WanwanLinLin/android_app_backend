@@ -336,16 +336,16 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     LOG(f"{conn.llm_engine.name} 首token回复时间：{cost_time} 秒", "DEBUG")
                     await websocket.send_json({"type": "analysis", "text": f"response in {cost_time} seconds"})
                 for text in _text:
-                    if conn.status != 0: break
+                    if conn.status == 1: break
                     current_sentence += text
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
                     await asyncio.sleep(0.005)
                     if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
-                        conn.tts_pending_queue.appendleft(current_sentence)
+                        conn.tts_pending_queue.appendleft({"task_type": "tts", "text": current_sentence})
                         current_sentence = ""
-                if conn.status != 0:
+                if conn.status == 1:
                     await websocket.send_json({"type": "finish"})
                     conn.dialogue_history.append({"role": "assistant", "content": all_reply})
                     chunk_nums = 0
@@ -353,9 +353,10 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     break
             # 处理剩余语句
             if current_sentence:
-                conn.tts_pending_queue.appendleft(current_sentence)
+                conn.tts_pending_queue.appendleft({"task_type": "tts", "text": current_sentence})
             conn.dialogue_history.append({"role": "assistant", "content": all_reply})
             await websocket.send_json({"type": "finish"})
+            conn.tts_pending_queue.appendleft({"task_type": "llm_done"})
             chunk_nums = 0
         else:
             await asyncio.sleep(0.01)
@@ -374,10 +375,14 @@ async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCusto
                 current_tts_task = None
         elif len(conn.tts_pending_queue) or current_tts_task:
             if not current_tts_task:
-                text = conn.tts_pending_queue.pop()
-                # print(f"创建任务：{text}")
-                tts_engine = deepcopy(conn.tts_engine)  # 待优化
-                current_tts_task = asyncio.create_task(tts_engine.text_to_speak(text, conn), name=text)
+                task = conn.tts_pending_queue.pop()
+                if task["task_type"] == "tts":
+                    # print(f"创建任务：{text}")
+                    tts_engine = deepcopy(conn.tts_engine)  # 待优化
+                    current_tts_task = asyncio.create_task(tts_engine.text_to_speak(task["text"], conn), name=task["text"])
+                elif task["task_type"] == "llm_done":
+                    await websocket.send_json({"type": "tts_done"})
+                    LOG(f"向客户端推送tts音频结束消息", "DEBUG")
             elif current_tts_task.done():
                 if current_tts_task.result():
                     # conn.tts_data_queue.put(current_tts_task.result())

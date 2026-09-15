@@ -182,6 +182,9 @@ class TTSProvider(TTSProviderBase):
             if len(self.delay_q) > 35: break
             else: await asyncio.sleep(0.001)
         while self.running or len(self.delay_q):
+            if conn.status == 1: 
+                LOG(f"vllm-omni 收到客户端打断消息，停止推送音频", "DEBUG")
+                break
             if len(self.delay_q):
                 audio = self.delay_q.popleft()
                 conn.tts_data_queue.put(audio)
@@ -193,7 +196,7 @@ class TTSProvider(TTSProviderBase):
             else:
                 await asyncio.sleep(0.001)
         
-        LOG(f"vllm-omni push thread done | {text} | cost {round(push_first_frame_time, 5)} seconds", "DEBUG")
+        LOG(f"vllm-omni push thread done | {text} | first chunk cost {round(push_first_frame_time, 5)} seconds", "DEBUG")
     
     async def text_to_speak(self, text, conn):
         text = self.custom_text_front(text)
