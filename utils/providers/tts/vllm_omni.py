@@ -99,6 +99,8 @@ class TTSProvider(TTSProviderBase):
         return text
     
     async def _text_to_speak(self, text, conn):
+        if len(text) < 12: use_stream = False
+        else: use_stream = True
         nums = 0
         for i in range(5):
             nums += 1
@@ -112,12 +114,12 @@ class TTSProvider(TTSProviderBase):
                 start_time = time.perf_counter()
                 input_data = {
                     "input": text,
-                    "task_type": "Base",
+                    "task_type": "CustomVoice",
                     # "ref_audio": "http://113.108.106.173:8856/files/others/ICL_zh_female_tianmeixiaoyu_cs_tob.wav",
                     # "ref_audio": "file:///data/hbh/cproject/vllm-omni/audios/ICL_zh_female_tianmeixiaoyu_cs_tob.wav",
                     # "ref_text": "欢迎来到故宫博物院，这里是明清两代的皇家宫殿。",
                     "voice": self.voice,
-                    "stream": True,
+                    "stream": use_stream,
                     "response_format": self.format,
                     "non_streaming_mode": False
                 }
@@ -137,7 +139,8 @@ class TTSProvider(TTSProviderBase):
                             if chunk:
                                 chunk_nums += 1
                                 # # 跳过静音数据
-                                if chunk_nums <= 20: continue
+                                if use_stream:
+                                    if chunk_nums <= 18: continue
                                 converted, state = audioop.ratecv(
                                     chunk, 2, 1, 24000, 16000, state
                                 )
@@ -178,9 +181,9 @@ class TTSProvider(TTSProviderBase):
     async def deplay_push(self, text, conn):
         flag = True
         start_time = time.perf_counter()
-        while 1:
-            if len(self.delay_q) > 35: break
-            else: await asyncio.sleep(0.001)
+        # while 1:
+        #     if len(self.delay_q) > 35: break
+        #     else: await asyncio.sleep(0.001)
         while self.running or len(self.delay_q):
             if conn.status == 1: 
                 LOG(f"vllm-omni 收到客户端打断消息，停止推送音频", "DEBUG")
@@ -188,8 +191,8 @@ class TTSProvider(TTSProviderBase):
             if len(self.delay_q):
                 audio = self.delay_q.popleft()
                 conn.tts_data_queue.put(audio)
-                conn.aec3_data_queue.put(audio[:320])
-                conn.aec3_data_queue.put(audio[320:])
+                # conn.aec3_data_queue.put(audio[:320])
+                # conn.aec3_data_queue.put(audio[320:])
                 if flag:
                     push_first_frame_time = time.perf_counter() - start_time
                     flag = False

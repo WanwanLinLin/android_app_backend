@@ -322,6 +322,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
     chunk_nums = 0
+    sentence_len = 20
     while conn.is_active:
         if not conn.llm_queue.empty():
             question = conn.llm_queue.get()
@@ -341,7 +342,8 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     all_reply += text
                     await websocket.send_json({"type": "assistant", "text": text})
                     await asyncio.sleep(0.005)
-                    if current_sentence and len(current_sentence) > 10 and current_sentence[-1] in conn.punctuation_separator:
+                    if current_sentence and len(current_sentence) > sentence_len and current_sentence[-1] in conn.punctuation_separator:
+                        sentence_len = 5
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft({"task_type": "tts", "text": current_sentence})
                         current_sentence = ""
@@ -349,6 +351,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     await websocket.send_json({"type": "finish"})
                     conn.dialogue_history.append({"role": "assistant", "content": all_reply})
                     chunk_nums = 0
+                    sentence_len = 20
                     LOG("LLM 回复被打断...", "DEBUG")
                     break
             # 处理剩余语句
@@ -358,6 +361,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             await websocket.send_json({"type": "finish"})
             conn.tts_pending_queue.appendleft({"task_type": "llm_done"})
             chunk_nums = 0
+            sentence_len = 20
         else:
             await asyncio.sleep(0.01)
 
