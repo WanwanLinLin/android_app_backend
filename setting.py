@@ -13,3 +13,5 @@ AEC_DELAY_OFFSET = 8
 
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
+
+LOGS_PATH = os.path.join(CURRENT_PATH, "logs")
