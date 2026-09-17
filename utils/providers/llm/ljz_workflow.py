@@ -40,6 +40,9 @@ class LLMProvider(LLMProviderBase):
                                 json_str = decoded_data.split('data:')[1].strip()
                                 output = json.loads(json_str)
                                 if "done" in output and output["done"]: break
+                                if output.get("type", "") == "meta":
+                                    kwargs["conn"].current_language = output['language']
+                                    LOG(f"{self.name} 获取到语言类型：{output['language']}", "DEBUG")
                                 yield output["text"]
                                     # yield [data_dict['data']['answer'],session_id]
                             except Exception as e:

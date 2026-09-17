@@ -330,7 +330,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
             current_sentence = ""
             conn.dialogue_history.append({"role": "user", "content": question})
             start_time = time.perf_counter()
-            async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history):
+            async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history, conn=conn):
                 chunk_nums += 1
                 if chunk_nums == 1:
                     cost_time = round((time.perf_counter() - start_time), 5)
