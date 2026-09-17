@@ -122,19 +122,12 @@ class TTSProvider(TTSProviderBase):
                     break
 
                 conn.tts_data_queue.put(data1)
-                conn.aec3_data_queue.put(data1[:320])
-                conn.aec3_data_queue.put(data1[320:])
+                # conn.aec3_data_queue.put(data1[:320])
+                # conn.aec3_data_queue.put(data1[320:])
 
             await reader.close()
             return 1
         else:
-        
-            # await asyncio.gather(
-            #     self._text_to_speak(text, conn),
-            #     self.deplay_push(text, conn)
-            # )
-            # return 1
-            
             if len(text) < 12: use_stream = False
             else: use_stream = True
             nums = 0
@@ -198,10 +191,10 @@ class TTSProvider(TTSProviderBase):
                                 conn.tts_data_queue.put(bytes(buffer))
                             
                             self.running = False
-                            # 保存音频文件
-                            await handle_audio_file(op=False, tag=self.tag, sec_text=self.sec_text,
-                                        voice=self.voice, format=self.format, sr=self.sr, recog_text=self.recog_text,
-                                        save_path=save_file_name, speed=self.speed)
+                            # # 保存音频文件
+                            # await handle_audio_file(op=False, tag=self.tag, sec_text=self.sec_text,
+                            #             voice=self.voice, format=self.format, sr=self.sr, recog_text=self.recog_text,
+                            #             save_path=save_file_name, speed=self.speed)
                             with open(_save_path, "wb") as f:
                                 f.write(self.audio_data)
                             self.audio_data = b''
