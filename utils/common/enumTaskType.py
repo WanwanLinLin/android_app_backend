@@ -28,6 +28,7 @@ class WebsocketServerEvent(Enum):
     ASSISTANT = "assistant"     # 智能体回复内容
     FINISH = "finish"           # 智能体回复完成
     TTS_DONE = "tts_done"       # 推送完本轮对话所有的tts数据
+    SESSION_CREATE = "session_create"
     
 
 # Websocket 客户端事件

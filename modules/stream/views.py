@@ -22,6 +22,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
                                                   recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
+from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from utils.getLogs import LOG
 from setting import config_data
@@ -83,6 +84,10 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
+    # 向中断发送握手事件：
+    await websocket.send_json(
+        {"type": WebsocketServerEvent.SESSION_CREATE.value,
+         "session_id": conn.session_id})
     # conn.chunk_asr_client = await websockets.connect("ws://192.168.3.36:18113/v1/stream/chunk")
     if asr_config.get("params").get("stream_asr_url", ""):
         try:
@@ -106,8 +111,6 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     else:
         # server_vad模式
         try:
-            # asyncio.create_task(conn.asr_engine.initialize(websocket, conn))
-            # await conn.asr_engine.initialize(websocket, conn)
             await asyncio.gather(
                 conn.asr_engine.initialize(websocket, conn),
                 receive_audio_data(websocket, conn),
