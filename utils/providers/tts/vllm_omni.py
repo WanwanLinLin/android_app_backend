@@ -191,10 +191,10 @@ class TTSProvider(TTSProviderBase):
                                 conn.tts_data_queue.put(bytes(buffer))
                             
                             self.running = False
-                            # # 保存音频文件
-                            # await handle_audio_file(op=False, tag=self.tag, sec_text=self.sec_text,
-                            #             voice=self.voice, format=self.format, sr=self.sr, recog_text=self.recog_text,
-                            #             save_path=save_file_name, speed=self.speed)
+                            # 保存音频文件
+                            await handle_audio_file(op=False, tag=self.tag, sec_text=self.sec_text,
+                                        voice=self.voice, format=self.format, sr=self.sr, recog_text=self.recog_text,
+                                        save_path=save_file_name, speed=self.speed)
                             with open(_save_path, "wb") as f:
                                 f.write(self.audio_data)
                             self.audio_data = b''

@@ -26,6 +26,8 @@ class LLMProvider(LLMProviderBase):
             "text": dialogue[-1]["content"],
             "stream": True
         }
+        if self.params.get("body", None):
+            json_data.update(**self.params.get("body"))
         json_data = json.dumps(json_data)
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
             async with session.post(self.url, headers=self.headers, data=json_data) as response:
