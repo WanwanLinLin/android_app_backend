@@ -422,3 +422,7 @@ async def send_asr_chunk(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 await websocket.send_json(text)
                 conn.last_chunk_sentence = text["text"]
                 await asyncio.sleep(0.001)
+
+
+async def stream_asr_realtime_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+    await conn.asr_engine.initialize(websocket, conn)

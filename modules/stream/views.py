@@ -21,7 +21,7 @@ from pydub import AudioSegment
 from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
-                                                  recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk)
+                                                  recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk, stream_asr_realtime_monitor)
 from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from utils.getLogs import LOG
@@ -84,7 +84,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
-    # 向中断发送握手事件：
+    # 向终端发送握手事件：
     await websocket.send_json(
         {"type": WebsocketServerEvent.SESSION_CREATE.value,
          "session_id": conn.session_id})
@@ -108,11 +108,19 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
             await conn.chunk_asr_client.close()
             await asyncio.sleep(1)  # 等待资源释放
             conn = None
+        except Exception as e:
+            conn.is_active = False
+            conn.pa = None
+            conn.frv = None
+            # await conn.chunk_asr_client.close()
+            conn = None
+            LOG(f"客户端连接异常断开: {e}", "DEBUG")
     else:
         # server_vad模式
         try:
             await asyncio.gather(
-                conn.asr_engine.initialize(websocket, conn),
+                # conn.asr_engine.initialize(websocket, conn),
+                stream_asr_realtime_monitor(websocket, conn),
                 receive_audio_data(websocket, conn),
                 get_llm_result(websocket, conn),
                 get_tts_path_monitor(websocket, conn),

@@ -67,7 +67,7 @@ class TTSProvider(TTSProviderBase):
                 nums += 1
                 start_time = time.perf_counter()
                 save_file_name = str(uuid.uuid4()) + f".{self.format}"
-                _save_path = config_data["CACHE"]["tts"] + save_file_name
+                _save_path = config_data["CACHE"]["tts_cache"] + save_file_name
                 try:
                     headers = {
                         "Content-Type": "application/json",
