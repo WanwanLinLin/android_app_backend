@@ -135,7 +135,7 @@ class ASRProvider(ASRProviderBase):
                         if resp["text"]: conn.llm_queue.put(resp["text"])
                         conn.in_recognize = False
                 await asyncio.sleep(0.003)
-        except websockets.exceptions.ConnectionClosedOK:
+        except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):
             ...
     
     async def speech_to_text(self, file_path: str, conn):
