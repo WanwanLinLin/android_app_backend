@@ -20,18 +20,18 @@ from utils.common.auth import validate_stream_accesskey
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
-@router.post("/v1/llm/list", summary="获取大模型列表", tags=["通用接口"])
+@router.post("/v1/agent/list", summary="获取大模型列表", tags=["通用接口"])
 async def _add_agent(info: schema.AddLLModel):
     return GeneticResponse(data= await get_agent_list())
 
 
-@router.post("/v1/llm/add", summary="添加大模型/agent", tags=["通用接口"])
+@router.post("/v1/agent/add", summary="添加大模型/agent", tags=["通用接口"])
 async def _add_agent(info: schema.AddLLModel):
     await add_one_agent(**info.model_dump())
     return GeneticResponse()
 
 
-@router.get("/v1/llm/get/{id}", summary="获取一个大模型配置", tags=["通用接口"])
+@router.get("/v1/agent/get/{id}", summary="获取一个大模型配置", tags=["通用接口"])
 async def _get_agent(id: int):
     data = await get_one_agent(id)
     if data: return GeneticResponse(data=data)

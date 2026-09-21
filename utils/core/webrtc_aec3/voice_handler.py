@@ -74,7 +74,7 @@ class ConnectionObjectCustomAec3:
         self.audio_chunk_queue = Queue()
         self.audio_buffer = deque()
         self.curren_tts_file_path = ""
-        self.status = 0  # 0:idle 1:talking
+        self.status = WebsocketConnectionEvent.IDLE.value  # 0:idle 1:talking
         self.frame_size = 320
         self.global_config = {}
         self.is_active = True
@@ -144,7 +144,7 @@ class ConnectionObjectCustomAec3:
         # 线程任务相关
         self.loop = asyncio.get_event_loop()
         self.stop_event = threading.Event()
-        self.executor = ThreadPoolExecutor(max_workers=3)
+        self.executor = ThreadPoolExecutor(max_workers=2)
 
 
 # ============================================================
@@ -184,7 +184,7 @@ async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3
             if conn.status == WebsocketConnectionEvent.IDLE.value:
                 # await websocket.send_bytes(data1)
                 frame_data = conn.opus_encoder.encode(data1, 320)
-                # print(f"{datetime.now()} before is {len(data1)} || after {len(frame_data)}")
+                # print(f" before is {len(data1)} || after {len(frame_data)}")
                 await websocket.send_bytes(frame_data)
         else:
             await asyncio.sleep(0.01)

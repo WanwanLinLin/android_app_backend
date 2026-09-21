@@ -9,6 +9,7 @@ import aiofiles
 from fastapi import WebSocket, WebSocketDisconnect
 import websockets
 import subprocess
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.core.webrtc_aec3.voice_handler import ConnectionObjectCustomAec3
 from utils.providers.tts.base import TTSProviderBase
 from pydub import AudioSegment
@@ -65,7 +66,7 @@ class TTSProvider(TTSProviderBase):
             buffer = bytearray()
             while conn.is_active:
                 res = await self.qwen3_tts_websocket.recv()
-                if conn.status == 1:
+                if conn.status == WebsocketConnectionEvent.TALKING.value:
                     state = None
                     buffer = bytearray()
                     self.audio_index = 0

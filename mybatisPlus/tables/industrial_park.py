@@ -184,11 +184,11 @@ class AgentSessionManagement(Base):
     __tablename__ = "AgentSessionManagement"
     
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String(30), index=True, comment="session id")
+    session_id = Column(String(88), index=True, comment="session id")
     agent_id = Column(Integer, comment="agent id")
     asr_id = Column(Integer, comment="asr id")
     tts_id = Column(Integer, comment="tts id")
-    dialogue_history = Column(JSON, comment="对话记录")
+    dialogue_history = Column(JSON, default=None, comment="对话记录")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")

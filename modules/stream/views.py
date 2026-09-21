@@ -24,6 +24,7 @@ from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, re
                                                   recognize_asr_file, get_agent_result, get_tts_path_monitor, send_asr_chunk, stream_asr_realtime_monitor)
 from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
+from mybatisPlus.agent_orm import manage_agent_session
 from utils.getLogs import LOG
 from setting import config_data
 
@@ -88,56 +89,37 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     await websocket.send_json(
         {"type": WebsocketServerEvent.SESSION_CREATE.value,
          "session_id": conn.session_id})
-    # conn.chunk_asr_client = await websockets.connect("ws://192.168.3.36:18113/v1/stream/chunk")
-    if asr_config.get("params").get("stream_asr_url", ""):
-        try:
-            conn.chunk_asr_client = await websockets.connect(asr_config.get("params").get("stream_asr_url"))
-            await asyncio.gather(
-                receive_audio_data(websocket, conn),
-                webrtc_aec3(websocket, conn),
-                send_audio_data(websocket, conn),
-                recognize_asr_file(websocket, conn),
-                get_agent_result(websocket, conn),
-                get_tts_path_monitor(websocket, conn),
-                send_asr_chunk(websocket, conn),
-            )
-        except WebSocketDisconnect as e:
-            conn.is_active = False
-            conn.pa = None
-            conn.frv = None
-            await conn.chunk_asr_client.close()
-            await asyncio.sleep(1)  # 等待资源释放
-            conn = None
-        except Exception as e:
-            conn.is_active = False
-            conn.pa = None
-            conn.frv = None
-            # await conn.chunk_asr_client.close()
-            conn = None
-            LOG(f"客户端连接异常断开: {e}", "DEBUG")
-    else:
-        # server_vad模式
-        try:
-            await asyncio.gather(
-                # conn.asr_engine.initialize(websocket, conn),
-                stream_asr_realtime_monitor(websocket, conn),
-                receive_audio_data(websocket, conn),
-                get_agent_result(websocket, conn),
-                get_tts_path_monitor(websocket, conn),
-                send_audio_data(websocket, conn),
-            )
-        except WebSocketDisconnect as e:
-            conn.is_active = False
-            conn.pa = None
-            conn.frv = None
-            await asyncio.sleep(1)  # 等待资源释放
-            conn = None
-        # print(f"manba out {e}")
     
-        except Exception as e:
-            conn.is_active = False
-            conn.pa = None
-            conn.frv = None
-            # await conn.chunk_asr_client.close()
-            conn = None
-            LOG(f"客户端连接异常断开: {e}", "DEBUG")
+    conn.executor.submit(asyncio.run_coroutine_threadsafe, manage_agent_session(type="create", session_id=conn.session_id,
+                                                           agent_id=llm_config.get("id"), asr_id=asr_config.get("id"),
+                                                           tts_id=tts_config.get("id")), conn.loop)
+
+    # server_vad模式
+    try:
+        await asyncio.gather(
+            # conn.asr_engine.initialize(websocket, conn),
+            stream_asr_realtime_monitor(websocket, conn),
+            receive_audio_data(websocket, conn),
+            get_agent_result(websocket, conn),
+            get_tts_path_monitor(websocket, conn),
+            send_audio_data(websocket, conn),
+        )
+    except WebSocketDisconnect:
+        LOG(f"客户端连接断开", "DEBUG")
+        # conn.is_active = False
+        # conn.pa = None
+        # conn.frv = None
+        # await asyncio.sleep(1)  # 等待资源释放
+        # conn = None
+
+    except Exception as e:
+        LOG(f"客户端连接异常断开: {e}", "DEBUG")
+    finally:
+        conn.executor.submit(asyncio.run_coroutine_threadsafe, manage_agent_session(type="update", session_id=conn.session_id,
+                                                           dialogue_history=conn.dialogue_history), conn.loop)
+        conn.is_active = False
+        conn.pa = None
+        conn.frv = None
+        # await conn.chunk_asr_client.close()
+        # await asyncio.sleep(2.5)
+        # conn = None

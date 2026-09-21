@@ -7,7 +7,7 @@ from typing import Union, List, Dict
 
 from datetime import datetime
 from datetime import datetime, timedelta
-from .tables.industrial_park import (LLMFactories)
+from .tables.industrial_park import (LLMFactories, AgentSessionManagement)
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -71,5 +71,20 @@ async def get_one_agent(id: int):
             return None
 
 
-async def manage_agent_session():
-    ...
+async def manage_agent_session(**kwargs):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():  # 开启事务
+            _type = kwargs.get("type")
+            del kwargs["type"]
+            if _type == "create":
+                new_record = AgentSessionManagement(**kwargs)
+                session.add(new_record)
+                return True
+            elif _type == "update":
+                info = await session.scalar(select(AgentSessionManagement).filter_by(session_id=kwargs["session_id"]))
+                info.dialogue_history = kwargs["dialogue_history"]
+                session.add(info)
+                return True
+            else:
+                return False
+                
