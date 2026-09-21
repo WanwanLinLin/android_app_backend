@@ -21,7 +21,7 @@ from pydub import AudioSegment
 from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
-                                                  recognize_asr_file, get_llm_result, get_tts_path_monitor, send_asr_chunk, stream_asr_realtime_monitor)
+                                                  recognize_asr_file, get_agent_result, get_tts_path_monitor, send_asr_chunk, stream_asr_realtime_monitor)
 from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from utils.getLogs import LOG
@@ -97,7 +97,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
                 webrtc_aec3(websocket, conn),
                 send_audio_data(websocket, conn),
                 recognize_asr_file(websocket, conn),
-                get_llm_result(websocket, conn),
+                get_agent_result(websocket, conn),
                 get_tts_path_monitor(websocket, conn),
                 send_asr_chunk(websocket, conn),
             )
@@ -122,7 +122,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
                 # conn.asr_engine.initialize(websocket, conn),
                 stream_asr_realtime_monitor(websocket, conn),
                 receive_audio_data(websocket, conn),
-                get_llm_result(websocket, conn),
+                get_agent_result(websocket, conn),
                 get_tts_path_monitor(websocket, conn),
                 send_audio_data(websocket, conn),
             )

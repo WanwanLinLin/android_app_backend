@@ -22,6 +22,7 @@ class User(Base):
     nickname = Column(String(100), default=None, comment="真实姓名")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
 
 
 class Device2UserInfo(Base):
@@ -79,6 +80,7 @@ class SourceList(Base):
     is_default = Column(Boolean, index=True, default=False, comment="是否是默认资源")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
 
 
 class TTSFactories(Base):
@@ -97,6 +99,7 @@ class TTSFactories(Base):
     create_time = Column(DateTime, default=lambda: beijing_now())
     additional_param = Column(JSON, comment="大模型参数", default="{}")
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
     
 
 class LLMFactories(Base):
@@ -113,6 +116,7 @@ class LLMFactories(Base):
     params = Column(JSON, comment="大模型参数")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
 
 
 class ASRFactories(Base):
@@ -129,6 +133,7 @@ class ASRFactories(Base):
     apikey = Column(String(128), comment="请求密钥")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
     
 
 class FigureFactories(Base):
@@ -148,6 +153,7 @@ class FigureFactories(Base):
     resolution = Column(JSON, default="[]", comment="支持的分辨率")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
     
 
 class TTScache(Base):
@@ -168,3 +174,21 @@ class TTScache(Base):
     recog_text = Column(Text(length=65535, collation='utf8mb4_general_ci'), comment="输入文本")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+
+
+class AgentSessionManagement(Base):
+    """
+    管理agent生命周期
+    """
+    __tablename__ = "AgentSessionManagement"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(30), index=True, comment="session id")
+    agent_id = Column(Integer, comment="agent id")
+    asr_id = Column(Integer, comment="asr id")
+    tts_id = Column(Integer, comment="tts id")
+    dialogue_history = Column(JSON, comment="对话记录")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")

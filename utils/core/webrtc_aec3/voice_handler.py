@@ -312,7 +312,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
             await asyncio.sleep(0.001)
 
 
-async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+async def get_agent_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     if conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None):
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
@@ -413,3 +413,13 @@ async def send_asr_chunk(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
 
 async def stream_asr_realtime_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     await conn.asr_engine.initialize(websocket, conn)
+
+
+async def start_session():
+    # 1.创建聊天记录
+    ...
+
+
+async def finish_session():
+    # 1.保存对话上下文
+    ...

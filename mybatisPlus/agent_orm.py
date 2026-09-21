@@ -37,7 +37,7 @@ class _GetLLMList(BaseModel):
         return datetime.strftime(v, "%Y-%m-%d %H:%M:%S")
 
 
-async def get_llm_list():
+async def get_agent_list():
     results = []
     total_len = 0
     async with AsyncSessionLocal() as session:
@@ -52,7 +52,7 @@ async def get_llm_list():
             return {"rows": results, "total": total_len}
         
 
-async def add_one_llm(**kwargs):
+async def add_one_agent(**kwargs):
     async with AsyncSessionLocal() as session:
         async with session.begin():  # 开启事务
             new_voice = LLMFactories(**kwargs)
@@ -60,7 +60,7 @@ async def add_one_llm(**kwargs):
         return 1
     
 
-async def get_one_llm(id: int):
+async def get_one_agent(id: int):
     async with AsyncSessionLocal() as session:
         async with session.begin():  # 开启事务
             voice = await session.scalar(
@@ -70,3 +70,6 @@ async def get_one_llm(id: int):
                 return data
             return None
 
+
+async def manage_agent_session():
+    ...
