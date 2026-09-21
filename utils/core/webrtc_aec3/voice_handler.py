@@ -29,7 +29,7 @@ from collections import deque, OrderedDict
 from fastapi import WebSocket, WebSocketDisconnect
 from setting import *
 from utils.getLogs import LOG
-from utils.common.enumTaskType import WebsocketServerEvent, WebsocketClientEvent, ServerInternalEvent
+from utils.common.enumTaskType import WebsocketServerEvent, WebsocketClientEvent, ServerInternalEvent, WebsocketConnectionEvent
 
 
 class LimitedQueue:
@@ -74,7 +74,7 @@ class ConnectionObjectCustomAec3:
         self.audio_chunk_queue = Queue()
         self.audio_buffer = deque()
         self.curren_tts_file_path = ""
-        self.status = 0  # 0:silence 1:playing
+        self.status = 0  # 0:idle 1:talking
         self.frame_size = 320
         self.global_config = {}
         self.is_active = True
@@ -165,7 +165,7 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
                 command = json.loads(message["text"])
                 LOG(f"收到客户端指令消息：{command}", "DEBUG")
                 if command["type"] == WebsocketClientEvent.WAKEUP.value:
-                    conn.status = 1
+                    conn.status = WebsocketConnectionEvent.TALKING.value
                     await websocket.send_json({"type": WebsocketServerEvent.INTERRUPT.value})
             elif "bytes" in message:
                 pcm_frame = conn.opus_decoder.decode(message["bytes"], 160)
@@ -181,7 +181,7 @@ async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3
     while conn.is_active:
         if not conn.tts_data_queue.empty():
             data1 = conn.tts_data_queue.get()
-            if conn.status == 0:
+            if conn.status == WebsocketConnectionEvent.IDLE.value:
                 # await websocket.send_bytes(data1)
                 frame_data = conn.opus_encoder.encode(data1, 320)
                 # print(f"{datetime.now()} before is {len(data1)} || after {len(frame_data)}")
@@ -271,9 +271,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
                             if stop_duration >= conn.silence_threshold_ms:
                                 LOG("停止监听！", "DEBUG")
                                 await websocket.send_json({"type": WebsocketServerEvent.STOP_LISTENING.value})
-                                if conn.global_config.get("asr_config").get("params").get("stream_asr_mode") == "chunk":
-                                    await conn.chunk_asr_client.send(json.dumps({"type": WebsocketServerEvent.STOP_LISTENING.value}, ensure_ascii="utf-8"))
-                                conn.status = 0
+                                conn.status = WebsocketConnectionEvent.IDLE.value
                                 file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
                                 pcm_data = conn.previous_frame_list + conn.all_asr_data
                                 with wave.open(file_path, "wb") as wf:
@@ -299,28 +297,17 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
 
                         if conn.client_have_voice:
                             conn.all_asr_data.append(aec3_res)
-                            if conn.global_config.get("asr_config").get("params").get("stream_asr_mode") != "chunk":
-                                if len(conn.all_asr_data) % 30 == 0:
-                                    # 进行实时语音识别
-                                    audio_in = b"".join(conn.previous_frame_list + conn.all_asr_data)
-                                    await conn.chunk_asr_client.send(audio_in)
-                            else:
-                                # chunk recog
-                                await conn.chunk_asr_client.send(aec3_res)
-
+                            
                         if conn.all_point == 1:
                             conn.collect_previous = False
                             conn.client_have_voice = True
                             conn.last_activity_time = time.time() * 1000
                             conn.all_point += 1
                             LOG("开始监听333...", "DEBUG")
-                            conn.status = 1
+                            conn.status = WebsocketConnectionEvent.TALKING.value
                             await websocket.send_json({"type": WebsocketServerEvent.INTERRUPT.value})
                             await websocket.send_json({"type": WebsocketServerEvent.START_LISTENING.value})
                             conn.previous_frame_list = conn.previous_frame.get_all_items()
-                            if conn.global_config.get("asr_config").get("params").get("stream_asr_mode") == "chunk":
-                                await conn.chunk_asr_client.send(json.dumps({"type": WebsocketServerEvent.START_LISTENING.value}, ensure_ascii="utf-8"))
-                                await conn.chunk_asr_client.send(b''.join(conn.previous_frame_list))
         else:
             await asyncio.sleep(0.001)
 
@@ -345,7 +332,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                     LOG(f"{conn.llm_engine.name} 首token回复时间：{cost_time} 秒", "DEBUG")
                     await websocket.send_json({"type": WebsocketServerEvent.ANALYSIS.value, "text": f"response in {cost_time} seconds"})
                 for text in _text:
-                    if conn.status == 1: break
+                    if conn.status == WebsocketConnectionEvent.TALKING.value: break
                     current_sentence += text
                     all_reply += text
                     await websocket.send_json({"type": WebsocketServerEvent.ASSISTANT.value, "text": text})
@@ -358,7 +345,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
                         current_sentence = ""
-                if conn.status == 1:
+                if conn.status == WebsocketConnectionEvent.TALKING.value:
                     await websocket.send_json({"type": "finish"})
                     conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
                     chunk_nums = 0
@@ -380,7 +367,7 @@ async def get_llm_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
 async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     current_tts_task = None
     while conn.is_active:
-        if conn.status == 1:
+        if conn.status == WebsocketConnectionEvent.TALKING.value:
             while len(conn.tts_pending_queue):
                 text = conn.tts_pending_queue.pop()
                 LOG(f"舍弃: {text}", "DEBUG")

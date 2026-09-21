@@ -10,6 +10,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 import websockets
 import subprocess
 from mybatisPlus.tts_orm import handle_audio_file
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.core.webrtc_aec3.voice_handler import ConnectionObjectCustomAec3
 from utils.providers.tts.base import TTSProviderBase
 from pydub import AudioSegment
@@ -47,7 +48,7 @@ class TTSProvider(TTSProviderBase):
             )
             await reader.open()
             while conn.is_active:
-                if conn.status == 1: break  # 打断tts数据传输
+                if conn.status == WebsocketConnectionEvent.TALKING.value: break  # 打断tts数据传输
                 data1 = await reader.read_frame()
                 if len(data1) < 160 * 2:
                     # Last partial frame
@@ -110,7 +111,7 @@ class TTSProvider(TTSProviderBase):
                             )
                             await reader.open()
                             while conn.is_active:
-                                if conn.status == 1: break  # 打断tts数据传输
+                                if conn.status == WebsocketConnectionEvent.TALKING.value: break  # 打断tts数据传输
                                 data1 = await reader.read_frame()
                                 if len(data1) < 160 * 2:
                                     padding_length = 640 - len(data1)

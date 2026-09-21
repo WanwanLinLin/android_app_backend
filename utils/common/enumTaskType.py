@@ -39,3 +39,8 @@ class WebsocketClientEvent(Enum):
 class ServerInternalEvent(Enum):
     TTS = "tts"     # 可以进行语音合成
     LLM_DONE = "llm_done"   # 智能体内容输出完成
+    
+
+class WebsocketConnectionEvent(Enum):
+    IDLE = "idle"   # 待机状态
+    TALKING = "talking"     # 对话状态

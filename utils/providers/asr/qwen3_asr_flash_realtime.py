@@ -15,6 +15,7 @@ import numpy as np
 import websockets
 from typing import Optional, Tuple, List
 from datetime import datetime, timezone
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.core.webrtc_aec3.voice_handler import ConnectionObjectCustomAec3
 from utils.providers.asr.base import ASRProviderBase
 from typing import Dict
@@ -126,7 +127,7 @@ class ASRProvider(ASRProviderBase):
                             "event_id": str(uuid.uuid4()),
                             "type": "input_audio_buffer.commit"
                             }))
-                            conn.status = 0
+                            conn.status = WebsocketConnectionEvent.IDLE.value
                             file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
                             pcm_data = conn.previous_frame_list + conn.all_asr_data
                             # with wave.open(file_path, "wb") as wf:
@@ -167,7 +168,7 @@ class ASRProvider(ASRProviderBase):
                         conn.last_activity_time = time.time() * 1000
                         conn.all_point += 1
                         LOG("开始监听333...", "DEBUG")
-                        conn.status = 1
+                        conn.status = WebsocketConnectionEvent.TALKING.value
                         await websocket.send_json({"type": "interrupt"})
                         await websocket.send_json({"type": "start_listening"})
                         conn.previous_frame_list = conn.previous_frame.get_all_items()
@@ -194,11 +195,6 @@ class ASRProvider(ASRProviderBase):
                     resp = json.loads(data)
                     if resp["type"] == "session.updated":
                         LOG(f"{TAG} aliyun 链接成功...", "DEBUG")
-                    # elif resp["type"] == "input_audio_buffer.speech_started":
-                    #     LOG(f"{TAG} 开始监听", "DEBUG")
-                    #     conn.status = 1
-                    #     await websocket.send_json({"type": "interrupt"})
-                    #     await websocket.send_json({"type": "start_listening"})
                     elif resp["type"] == "input_audio_transcription.failed":
                         LOG(f"{TAG} 服务端语音识别失败！", "DEBUG")
                         conn.in_recognize = False
@@ -212,10 +208,6 @@ class ASRProvider(ASRProviderBase):
                                 "latency_ms": None,
                                 "chunk_count": None
                             })
-                    # elif resp["type"] == "input_audio_buffer.committed":
-                    #     LOG(f"{TAG} 停止监听", "DEBUG")
-                    #     conn.status = 0
-                    #     await websocket.send_json({"type": "stop_listening"})
                     elif resp["type"] == "conversation.item.input_audio_transcription.completed":
                         conn.in_recognize = True
                         LOG(f"{TAG} 语音识别完成 {resp}", "DEBUG")

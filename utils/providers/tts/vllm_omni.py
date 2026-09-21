@@ -13,6 +13,7 @@ import subprocess
 import audioop
 
 import numpy as np
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.providers.tts.base import TTSProviderBase
 from pydub import AudioSegment
 from typing import Dict
@@ -113,7 +114,7 @@ class TTSProvider(TTSProviderBase):
             )
             await reader.open()
             while conn.is_active:
-                if conn.status == 1: break  # 打断tts数据传输
+                if conn.status == WebsocketConnectionEvent.TALKING.value: break  # 打断tts数据传输
                 data1 = await reader.read_frame()
                 if len(data1) < 160 * 2:
                     # Last partial frame

@@ -13,6 +13,7 @@ import numpy as np
 import websockets
 from typing import Optional, Tuple, List
 from datetime import datetime, timezone
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.core.webrtc_aec3.voice_handler import ConnectionObjectCustomAec3
 from utils.providers.asr.base import ASRProviderBase
 from typing import Dict
@@ -99,7 +100,7 @@ class ASRProvider(ASRProviderBase):
                     LOG(f"{TAG} 接收到服务端数据：{resp}", "DEBUG")
                     if resp["type"] == "vad_start":
                         LOG(f"{TAG} 开始监听", "DEBUG")
-                        conn.status = 1
+                        conn.status = WebsocketConnectionEvent.TALKING.value
                         await websocket.send_json({"type": "interrupt"})
                         await websocket.send_json({"type": "start_listening"})
                     elif resp["type"] == "chunk":
@@ -114,7 +115,7 @@ class ASRProvider(ASRProviderBase):
                             })
                     elif resp["type"] == "vad_stop":
                         LOG(f"{TAG} 停止监听", "DEBUG")
-                        conn.status = 0
+                        conn.status = WebsocketConnectionEvent.IDLE.value
                         await websocket.send_json({"type": "stop_listening"})
                     elif resp["type"] == "transcription":
                         conn.in_recognize = True
