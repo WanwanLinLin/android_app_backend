@@ -92,7 +92,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     
     conn.executor.submit(asyncio.run_coroutine_threadsafe, manage_agent_session(type="create", session_id=conn.session_id,
                                                            agent_id=llm_config.get("id"), asr_id=asr_config.get("id"),
-                                                           tts_id=tts_config.get("id")), conn.loop)
+                                                           tts_id=tts_config.get("id"), user_id=uid), conn.loop)
 
     # server_vad模式
     try:

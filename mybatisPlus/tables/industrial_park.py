@@ -185,6 +185,7 @@ class AgentSessionManagement(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(88), index=True, comment="session id")
+    user_id = Column(Integer, index=True, comment="user id")
     agent_id = Column(Integer, comment="agent id")
     asr_id = Column(Integer, comment="asr id")
     tts_id = Column(Integer, comment="tts id")
