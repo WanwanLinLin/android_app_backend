@@ -193,3 +193,17 @@ class AgentSessionManagement(Base):
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+
+
+class DigitalHumanChatTemplate(Base):
+    """
+    数字人对话模板
+    """
+    __tablename__ = "DigitalHumanChatTemplate"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    module_path = Column(String(256), comment="对话模板路径")
+    desc = Column(String(256), default=None, comment="简短的模板描述")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
