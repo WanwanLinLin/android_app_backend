@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from utils.common.schema import GeneticResponse
-from .tables.industrial_park import ASRFactories, Device2UserInfo, User, SourceList, LLMFactories, TTSFactories
+from .tables.industrial_park import ASRFactories, Device2UserInfo, User, SourceList, LLMFactories, TTSFactories, DigitalHumanChatTemplate
 from .tables.sqlcli import AsyncSessionLocal
 from utils.common.enumTaskType import SourceTypeEnum
 
@@ -87,6 +87,16 @@ class _GetTTSList2(BaseModel):
         protected_namespaces = ()
 
 
+class _GetChatTemplateList2(BaseModel):
+    id: int
+    module_path: Union[str, None]
+    desc: Union[str, None]
+    
+    class Config:
+        from_attributes = True
+        protected_namespaces = ()
+
+
 async def get_password(username: str):
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -163,16 +173,35 @@ async def get_source_config(**kwargs):
     tts_id = kwargs.get("tts_id") if kwargs.get("tts_id", None) else 1
     asr_id = kwargs.get("asr_id") if kwargs.get("asr_id", None) else 1
     llm_id = kwargs.get("llm_id") if kwargs.get("llm_id", None) else 1
+    # chat_template_id = kwargs.get("chat_template_id") if kwargs.get("chat_template_id", None) else 1
     async with AsyncSessionLocal() as session:
         async with session.begin():
             tts_config = await session.scalar(select(TTSFactories).filter_by(id=tts_id))
             asr_config = await session.scalar(select(ASRFactories).filter_by(id=asr_id))
-            llm_config = await session.scalar(select(LLMFactories).filter_by(id=llm_id))
-            
+            llm_config = await session.scalar(select(LLMFactories).filter_by(id=llm_id))                        
+            stmt = (
+                select(DigitalHumanChatTemplate)
+                .join(
+                    SourceList,
+                    SourceList.reference_id == DigitalHumanChatTemplate.id,
+                )
+                .join(
+                    User,
+                    User.id == SourceList.user_id,
+                )
+                .where(
+                    User.username == kwargs.get("uid"),
+                    SourceList.type == SourceTypeEnum.CHATTEMPLATE.value,
+                    SourceList.is_default.is_(True),
+                )
+                .limit(1)
+            )
+            chat_template_config = await session.scalar(stmt)
             return {
                 "tts_config": _GetTTSList2.model_validate(tts_config).model_dump(),
                 "asr_config": _GetASRList2.model_validate(asr_config).model_dump(),
-                "llm_config": _GetLLMList2.model_validate(llm_config).model_dump()
+                "llm_config": _GetLLMList2.model_validate(llm_config).model_dump(),
+                "chat_template_config": _GetChatTemplateList2.model_validate(chat_template_config).model_dump(),
             }
 
 

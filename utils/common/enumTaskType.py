@@ -16,6 +16,7 @@ class SourceTypeEnum(Enum):
     ASR = "ASR"
     FIGURE = "FIGURE"
     BACKGROUND = "BACKGROUND"
+    CHATTEMPLATE = "CHATTEMPLATE"
     
     
 # Websocket 服务端事件

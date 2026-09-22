@@ -13,7 +13,7 @@ from . import schema
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, UploadFile, Form, File
 from pydub import AudioSegment
-from mybatisPlus.template_orm import (get_chat_template_list, add_one_chat_template, get_one_chat_template)
+from mybatisPlus.chat_template_orm import (get_chat_template_list, add_one_chat_template, get_one_chat_template)
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 

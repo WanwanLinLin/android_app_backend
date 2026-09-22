@@ -312,7 +312,7 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
             await asyncio.sleep(0.001)
 
 
-async def get_agent_result(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     if conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None):
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
@@ -364,7 +364,7 @@ async def get_agent_result(websocket: WebSocket, conn: ConnectionObjectCustomAec
             await asyncio.sleep(0.01)
 
 
-async def get_tts_path_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+async def tts_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     current_tts_task = None
     while conn.is_active:
         if conn.status == WebsocketConnectionEvent.TALKING.value:
@@ -411,7 +411,7 @@ async def send_asr_chunk(websocket: WebSocket, conn: ConnectionObjectCustomAec3)
                 await asyncio.sleep(0.001)
 
 
-async def stream_asr_realtime_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
+async def asr_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     await conn.asr_engine.initialize(websocket, conn)
 
 

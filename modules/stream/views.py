@@ -20,8 +20,7 @@ from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, 
 from pydub import AudioSegment
 from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
-from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3, receive_audio_data, webrtc_aec3, send_audio_data,
-                                                  recognize_asr_file, get_agent_result, get_tts_path_monitor, send_asr_chunk, stream_asr_realtime_monitor)
+from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3)
 from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from mybatisPlus.agent_orm import manage_agent_session
@@ -59,6 +58,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     if not OnewayEncryption().verify_token(timeStamp, token): raise AccessKeyAuthError
     prompt = await websocket.receive_json()
     LOG(f"start with client config: {prompt}", "DEBUG")
+    start_time = time.perf_counter()
     conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
                                       vad_min_thre=prompt.get("vad_min_thre", 0.65), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
     conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
@@ -72,10 +72,12 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.chat_mode = prompt.get("prompt","aec")
     all_configs = await get_source_config(llm_id=prompt.get("source_config", {}).get("model_id", None),
                                           tts_id=prompt.get("source_config", {}).get("tts_id", None),
-                                          asr_id=prompt.get("source_config", {}).get("asr_id", None))
+                                          asr_id=prompt.get("source_config", {}).get("asr_id", None),
+                                          uid=uid)
     llm_config = all_configs.get("llm_config")
     tts_config = all_configs.get("tts_config")
     asr_config = all_configs.get("asr_config")
+    chat_template_config = all_configs.get("chat_template_config")
     conn.global_config["llm_config"] = llm_config
     conn.global_config["tts_config"] = tts_config
     conn.global_config["asr_config"] = asr_config
@@ -85,6 +87,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
+    LOG(f"Init base config total cost {time.perf_counter() - start_time} seconds", "DEBUG")
     # 向终端发送握手事件：
     await websocket.send_json(
         {"type": WebsocketServerEvent.SESSION_CREATE.value,
@@ -96,22 +99,17 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
 
     # server_vad模式
     try:
+        chat_template_engine = importlib.import_module(chat_template_config.get("module_path"))
         await asyncio.gather(
             # conn.asr_engine.initialize(websocket, conn),
-            stream_asr_realtime_monitor(websocket, conn),
-            receive_audio_data(websocket, conn),
-            get_agent_result(websocket, conn),
-            get_tts_path_monitor(websocket, conn),
-            send_audio_data(websocket, conn),
+            chat_template_engine.receive_audio_data(websocket, conn),
+            chat_template_engine.send_audio_data(websocket, conn),
+            chat_template_engine.agent_process_monitor(websocket, conn),
+            chat_template_engine.tts_process_monitor(websocket, conn),
+            chat_template_engine.asr_process_monitor(websocket, conn),
         )
     except WebSocketDisconnect:
         LOG(f"客户端连接断开", "DEBUG")
-        # conn.is_active = False
-        # conn.pa = None
-        # conn.frv = None
-        # await asyncio.sleep(1)  # 等待资源释放
-        # conn = None
-
     except Exception as e:
         LOG(f"客户端连接异常断开: {e}", "DEBUG")
     finally:
