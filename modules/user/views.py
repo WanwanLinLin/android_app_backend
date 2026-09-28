@@ -24,9 +24,8 @@ async def _list_engineers():
 async def _login(info: schema.UserLogin):    
     hashed_password = await get_password(info.username)
     if not hashed_password: return GeneticResponse(code=401, msg="Not authenticated")
-    # salt = bcrypt.gensalt(rounds=12)
-    pres = await asyncio.to_thread(bcrypt.checkpw, hashed_password.encode('utf-8'), info.password.encode('utf-8'))
-    if pres: return GeneticResponse(code=401, msg="Not authenticated")
+    pres = info.password == hashed_password
+    if not pres: return GeneticResponse(code=401, msg="Not authenticated")
     access_token = await JwtAccessToken(config_data["AUTH_CONFIG"]["secret_key"]).get_token(to_encode={"username": info.username})
     return GeneticResponse(data={
         "access_token": access_token,

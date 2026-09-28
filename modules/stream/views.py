@@ -61,7 +61,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     start_time = time.perf_counter()
     conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
                                       vad_min_thre=prompt.get("vad_min_thre", 0.65), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
-    conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
+    # conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
     conn.frv.init(
         config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.param",
         config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.bin",
@@ -87,6 +87,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     conn.asr_engine = importlib.import_module(asr_lib_name).ASRProvider(asr_config)
     conn.tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
     conn.llm_engine = importlib.import_module(llm_lib_name).LLMProvider(llm_config)
+    chat_template_engine = importlib.import_module(chat_template_config.get("module_path"))
     LOG(f"Init base config total cost {time.perf_counter() - start_time} seconds", "DEBUG")
     # 向终端发送握手事件：
     await websocket.send_json(
@@ -99,7 +100,6 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
 
     # server_vad模式
     try:
-        chat_template_engine = importlib.import_module(chat_template_config.get("module_path"))
         await asyncio.gather(
             # conn.asr_engine.initialize(websocket, conn),
             chat_template_engine.receive_audio_data(websocket, conn),
