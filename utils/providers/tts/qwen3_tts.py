@@ -52,12 +52,16 @@ class TTSProvider(TTSProviderBase):
     
     async def send_tts_text(self, text: str):
         self.start_time = time.perf_counter()
-        self.audio_index += 1
         request_payload = json.dumps({
+            "type": "tts",
             "text": text,
             "prompt": "You are a helpful assistant.<|endofprompt|>",
             "audio_index": self.audio_index
         })
+        await self.qwen3_tts_websocket.send(request_payload)
+    
+    async def send_break_signal(self):
+        request_payload = json.dumps({"type": "break",})
         await self.qwen3_tts_websocket.send(request_payload)
     
     async def receive_audio_data(self, conn: ConnectionObjectCustomAec3):
@@ -69,7 +73,8 @@ class TTSProvider(TTSProviderBase):
                 if conn.status == WebsocketConnectionEvent.TALKING.value:
                     state = None
                     buffer = bytearray()
-                    self.audio_index = 0
+                    # self.audio_index = 0
+                    # await self.send_break_signal()
                     continue  # 打断tts数据传输
                 if isinstance(res, str):
                     res = json.loads(res)
@@ -82,9 +87,10 @@ class TTSProvider(TTSProviderBase):
                         conn.tts_data_queue.put(bytes(buffer))
                     state = None
                     buffer = bytearray()
-                    self.audio_index = 0
+                    # self.audio_index = 0
                     # 发送缓存的数据
                     LOG(f"{TAG} recv str {res}")
+                    self.audio_index += 1
                 elif isinstance(res, (bytes, bytearray)):
                     converted, state = audioop.ratecv(
                         res, 2, 1, 24000, 16000, state
@@ -100,7 +106,7 @@ class TTSProvider(TTSProviderBase):
                         
         except websockets.exceptions.ConnectionClosedOK:
             ...
-     
+    
     async def text_to_speak(self, text, conn):
         if not self.init_tts:
             # await self.initialize(conn)
@@ -111,6 +117,11 @@ class TTSProvider(TTSProviderBase):
                 self.init_tts = True
                 break
         await self.send_tts_text(text)
+        current_index = self.audio_index
+        for i in range(1000):
+            if self.audio_index- current_index == 1: break
+            await asyncio.sleep(0.01)
+        # await self.receive_audio_data(conn)
         return 1
       
       

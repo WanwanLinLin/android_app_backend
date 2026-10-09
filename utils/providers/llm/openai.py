@@ -1,6 +1,7 @@
 import httpx
 import openai
 from openai.types import CompletionUsage
+from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.providers.llm.base import LLMProviderBase
 from utils.getLogs import LOG
 
@@ -58,6 +59,7 @@ class LLMProvider(LLMProviderBase):
             is_active = True
             async for chunk in responses:
                 try:
+                    if kwargs["conn"].status == WebsocketConnectionEvent.TALKING.value: break
                     # 检查是否存在有效的choice且content不为空
                     delta = (
                         chunk.choices[0].delta

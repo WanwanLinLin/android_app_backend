@@ -1,5 +1,10 @@
 #!/bin/bash
 
-export LD_LIBRARY_PATH=/opt/conda/envs/faster-qwen3-tts/lib/python3.12/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
-
-CUDA_VISIBLE_DEVICES=2 /opt/conda/envs/aec3/bin/python3 api.py
+python offline-qwen3-asr-decode-files.py \
+        --conv-frontend=./sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/conv_frontend.onnx \
+        --encoder=./sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/encoder.int8.onnx \
+        --decoder=./sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/decoder.int8.onnx \
+        --tokenizer=./sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tokenizer \
+        --max-new-tokens=128 \
+        --num-threads=20 \
+        ./sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/test_wavs/raokouling.wav
