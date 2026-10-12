@@ -25,6 +25,18 @@ class User(Base):
     is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
 
 
+class Tenant(Base):
+    __tablename__ = "Tenant"
+    id = Column(Integer, primary_key=True, index=True)
+    tenantname = Column(String(50), nullable=False)
+    job = Column(Text, default=None, comment="\u5de5\u4f5c\u63cf\u8ff0")
+    phone_number = Column(String(64), index=True, comment="\u7535\u8bdd\u53f7\u7801")
+    nickname = Column(String(100), default=None, comment="真实姓名")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, default=False, comment="该条记录是否已被删除")
+
+
 class Device2UserInfo(Base):
     __tablename__ = "Device2UserInfo"
     id = Column(Integer, primary_key=True, index=True)
