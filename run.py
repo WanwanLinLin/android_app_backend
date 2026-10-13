@@ -10,10 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from setting import config_data
 from threading import Thread
-from modules.tasks.views import router as task_router
-from modules.device.views import router as device_router
 from modules.user.views import router as user_router
-from modules.inspection.views import router as inspection_router
 from modules.tts.views import router as tts_router
 from modules.llm.views import router as llm_router
 from modules.asr.views import router as asr_router
@@ -33,10 +30,7 @@ app.add_middleware(
         allow_headers=["*"],
     )
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.include_router(task_router)
-app.include_router(device_router)
 app.include_router(user_router)
-app.include_router(inspection_router)
 app.include_router(tts_router)
 app.include_router(llm_router)
 app.include_router(asr_router)

@@ -4,8 +4,6 @@ import asyncio
 from . import schema
 from fastapi import APIRouter, Depends, status
 from utils.common.schema import GeneticResponse
-from mybatisPlus.task_orm import create_task
-from mybatisPlus.engineer_orm import list_engineers_detail
 from mybatisPlus.user_orm import get_password
 from utils.randomString import create_numbering
 from utils.auth import JwtAccessToken, validate_accesskey
@@ -13,11 +11,6 @@ from passlib.context import CryptContext
 from setting import config_data
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
-
-
-@router.get("/v1/user/engineer/list")
-async def _list_engineers():
-    return GeneticResponse(data=await list_engineers_detail())
 
 
 @router.post("/v1/user/login")

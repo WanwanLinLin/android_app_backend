@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from utils.providers.asr.base import ASRProviderBase
 from typing import Dict
 from utils.getLogs import LOG
-from setting import config_data
+from setting import get_service
 
 TAG = __name__
 
@@ -22,7 +22,7 @@ class ASRProvider(ASRProviderBase):
         self.url = config.get("url")
     
     async def speech_to_text(self, file_path: str, conn):
-        if config_data["SERVICES"][0]["host_ip"] in self.url:
+        if get_service("common")["host_ip"] in self.url:
             input_data = {
                     "messages": [
                         {

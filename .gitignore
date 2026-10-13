@@ -10,3 +10,5 @@ models
 static
 --git-common-dir
 temp/*
+.workbuddy/*
+.Trash-0/*

@@ -1,7 +1,6 @@
 aiofiles==25.1.0
 aiohappyeyeballs==2.6.2
 aiohttp==3.13.5
-aiomqtt==2.5.1
 aiomysql==0.3.2
 aiosignal==1.4.0
 alembic==1.12.1
@@ -25,8 +24,6 @@ fastapi-cli==0.0.24
 fastapi-cloud-cli==0.18.0
 fastar==0.11.0
 frozenlist==1.8.0
-geographiclib==2.1
-geopy==2.4.1
 gevent==26.8.0
 greenlet==3.5.1
 h11==0.16.0
@@ -47,7 +44,6 @@ numpy==1.26.4
 openai==2.3.0
 orjson==3.11.9
 packaging==26.0
-paho-mqtt==2.1.0
 passlib==1.7.4
 propcache==0.5.2
 pyasn1==0.6.4
