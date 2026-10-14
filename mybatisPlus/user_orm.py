@@ -1,266 +1,33 @@
-from datetime import datetime
-from typing import Union
-from pydantic import BaseModel
+"""后台管理员（User）数据访问层。
+
+架构调整后，User 仅承担两件事：
+  1. 登录鉴权（get_password）
+  2. Tenant 的生命周期管理入口（实际数据落在 Tenant 表，见 tenant_orm）
+
+业务归属（资源列表、默认配置、agent 会话等）一律以 Tenant 为主体，
+统一由 mybatisPlus.tenant_orm 提供，本模块不再涉及。
+"""
 from sqlalchemy import select
 
-from utils.common.schema import GeneticResponse
-from .tables.industrial_park import ASRFactories, Device2UserInfo, User, SourceList, LLMFactories, TTSFactories, DigitalHumanChatTemplate
+from .tables.industrial_park import User
 from .tables.sqlcli import AsyncSessionLocal
-from utils.common.enumTaskType import SourceTypeEnum
-
-
-class UserModel(BaseModel):
-    device_id: str
-    username: str
-    phone_number: str
-
-
-class _GetLLMList(BaseModel):
-    id: int
-    type: Union[str, None]
-    desc: Union[str, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-        
-
-class _GetASRList(BaseModel):
-    id: int
-    type: Union[str, None]
-    desc: Union[str, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-
-
-class _GetTTSList(BaseModel):
-    id: int
-    type: Union[str, None]
-    desc: Union[str, None]
-    tag: Union[str, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-        
-
-class _GetLLMList2(BaseModel):
-    id: int
-    url: Union[str, None]
-    type: Union[str, None]
-    desc: Union[str, None]
-    apikey: Union[str, None]
-    params: Union[dict, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-        
-
-class _GetASRList2(BaseModel):
-    id: int
-    url: Union[str, None]
-    type: Union[str, None]
-    desc: Union[str, None]
-    apikey: Union[str, None]
-    params: Union[dict, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-
-
-class _GetTTSList2(BaseModel):
-    id: int
-    url: Union[str, None]
-    type: Union[str, None]
-    desc: Union[str, None]
-    tag: Union[str, None]
-    voice: Union[str, None]
-    apikey: Union[str, None]
-    additional_param: Union[dict, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
-
-
-class _GetChatTemplateList2(BaseModel):
-    id: int
-    module_path: Union[str, None]
-    desc: Union[str, None]
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
 
 
 async def get_password(username: str):
     async with AsyncSessionLocal() as session:
         async with session.begin():
             user = await session.scalar(select(User).filter_by(username=username))
-            if not user: return None
-            return user.hashed_password
-        
-
-async def get_source_list(username: str):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            # 1. 查询用户（仅一次）
-            user = await session.scalar(select(User).filter_by(username=username))
             if not user:
                 return None
-
-            # 2. 查询该用户的所有 source（一次）
-            sources = await session.scalars(
-                select(SourceList).filter_by(user_id=user.id)
-            )
-            sources = list(sources)  # 转为列表便于多次迭代
-
-            # 按类型收集 reference_id
-            llm_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.LLM.value]
-            tts_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.TTS.value]
-            asr_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.ASR.value]
-
-            # 3. 批量加载 LLMFactories（最多一次）
-            llm_map = {}
-            if llm_ids:
-                llms = await session.scalars(
-                    select(LLMFactories).where(LLMFactories.id.in_(llm_ids))
-                )
-                llm_map = {llm.id: llm for llm in llms}
-
-            # 4. 批量加载 TTSFactories（最多一次）
-            tts_map = {}
-            if tts_ids:
-                ttss = await session.scalars(
-                    select(TTSFactories).where(TTSFactories.id.in_(tts_ids))
-                )
-                tts_map = {tts.id: tts for tts in ttss}
-                
-            # 4. 批量加载 ASRFactories（最多一次）
-            asr_map = {}
-            if asr_ids:
-                asrs = await session.scalars(
-                    select(ASRFactories).where(ASRFactories.id.in_(asr_ids))
-                )
-                asr_map = {asr.id: asr for asr in asrs}
-
-            # 组装结果
-            llm_list = []
-            tts_list = []
-            asr_list = []
-            for s in sources:
-                if s.type == SourceTypeEnum.LLM.value:
-                    llm_info = llm_map.get(s.reference_id)
-                    if llm_info:
-                        llm_list.append(_GetLLMList.model_validate(llm_info).model_dump())
-                elif s.type == SourceTypeEnum.TTS.value:
-                    tts_info = tts_map.get(s.reference_id)
-                    if tts_info:
-                        tts_list.append(_GetTTSList.model_validate(tts_info).model_dump())
-                elif s.type == SourceTypeEnum.ASR.value:
-                    asr_info = asr_map.get(s.reference_id)
-                    if asr_info:
-                        asr_list.append(_GetASRList.model_validate(asr_info).model_dump())
-
-            return {"llm": llm_list, "tts": tts_list, "asr": asr_list}
+            return user.hashed_password
 
 
-async def get_source_config(**kwargs):
-    tts_id = kwargs.get("tts_id") if kwargs.get("tts_id", None) else 1
-    asr_id = kwargs.get("asr_id") if kwargs.get("asr_id", None) else 1
-    llm_id = kwargs.get("llm_id") if kwargs.get("llm_id", None) else 1
-    # chat_template_id = kwargs.get("chat_template_id") if kwargs.get("chat_template_id", None) else 1
+async def get_admin(username: str):
     async with AsyncSessionLocal() as session:
-        async with session.begin():
-            tts_config = await session.scalar(select(TTSFactories).filter_by(id=tts_id))
-            asr_config = await session.scalar(select(ASRFactories).filter_by(id=asr_id))
-            llm_config = await session.scalar(select(LLMFactories).filter_by(id=llm_id))                        
-            stmt = (
-                select(DigitalHumanChatTemplate)
-                .join(
-                    SourceList,
-                    SourceList.reference_id == DigitalHumanChatTemplate.id,
-                )
-                .join(
-                    User,
-                    User.id == SourceList.user_id,
-                )
-                .where(
-                    User.username == kwargs.get("uid"),
-                    SourceList.type == SourceTypeEnum.CHATTEMPLATE.value,
-                    SourceList.is_default.is_(True),
-                )
-                .limit(1)
-            )
-            chat_template_config = await session.scalar(stmt)
-            return {
-                "tts_config": _GetTTSList2.model_validate(tts_config).model_dump(),
-                "asr_config": _GetASRList2.model_validate(asr_config).model_dump(),
-                "llm_config": _GetLLMList2.model_validate(llm_config).model_dump(),
-                "chat_template_config": _GetChatTemplateList2.model_validate(chat_template_config).model_dump(),
-            }
-
-
-async def get_default_source_config(username: str):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            user = await session.scalar(select(User).filter_by(username=username))
-            sources = await session.scalars(
-                select(SourceList).filter_by(user_id=user.id, is_default=True)
-            )
-            llm_config = None
-            tts_config = None
-            asr_config = None
-            for s in sources:
-                if s.type == SourceTypeEnum.LLM.value:
-                    llm_config = await session.scalar(select(LLMFactories).filter_by(id=s.reference_id))
-                elif s.type == SourceTypeEnum.TTS.value:
-                    tts_config = await session.scalar(select(TTSFactories).filter_by(id=s.reference_id))
-                elif s.type == SourceTypeEnum.ASR.value:
-                    asr_config = await session.scalar(select(ASRFactories).filter_by(id=s.reference_id))
-            
-            return {
-                "llm_config": _GetLLMList.model_validate(llm_config).model_dump() if llm_config else None,
-                "tts_config": _GetTTSList.model_validate(tts_config).model_dump() if tts_config else None,
-                "asr_config": _GetASRList.model_validate(asr_config).model_dump() if asr_config else None,
-            }
-            
-
-async def save_default_source_config(**kwargs):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            user = await session.scalar(select(User).filter_by(username=kwargs.get("username")))
-            sources = await session.scalars(
-                select(SourceList).filter_by(user_id=user.id, is_default=True)
-            )
-            for s in sources:
-                if s.type == SourceTypeEnum.LLM.value:
-                    s.is_default = False
-                elif s.type == SourceTypeEnum.TTS.value:
-                    s.is_default = False
-                elif s.type == SourceTypeEnum.ASR.value:
-                    s.is_default = False
-                session.add(s)
-            # LLM
-            source1 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.LLM.value, reference_id=kwargs.get("llm_id")))
-            source1.is_default = 1
-            # TTS
-            source2 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.TTS.value, reference_id=kwargs.get("tts_id")))
-            source2.is_default = 1
-            # ASR
-            source3 = await session.scalar(select(SourceList).filter_by(user_id=user.id, type=SourceTypeEnum.ASR.value, reference_id=kwargs.get("asr_id")))
-            source3.is_default = 1
-            session.add(source1)
-            session.add(source2)
-            session.add(source3)
-            
-            return 1
-
-
-if __name__ == "__main__":
-    import asyncio
-    
+        user = await session.scalar(
+            select(User).filter_by(username=username, is_delete=False)
+        )
+        if not user:
+            return None
+        return {"id": user.id, "username": user.username, "role": user.role,
+                "nickname": user.nickname}

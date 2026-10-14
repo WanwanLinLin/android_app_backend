@@ -12,11 +12,16 @@ def beijing_now():
 
 
 class User(Base):
+    """后台管理员账号表。
+
+    仅承担两件事：登录鉴权、以及 Tenant（业务租户）的生命周期管理。
+    业务归属（资源、会话、数字人配置等）一律挂在 Tenant 上，不再使用本表 id。
+    """
     __tablename__ = "User"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), default="engineer", comment="角色: admin/engineer")
+    role = Column(String(20), default="admin", comment="角色: admin/operator")
     job = Column(Text, default=None, comment="\u5de5\u4f5c\u63cf\u8ff0")
     phone_number = Column(String(64), index=True, comment="\u7535\u8bdd\u53f7\u7801")
     nickname = Column(String(100), default=None, comment="真实姓名")
@@ -26,9 +31,14 @@ class User(Base):
 
 
 class Tenant(Base):
+    """业务租户表——数字人运行时的实际归属主体。
+
+    终端（设备/数字人）以 tenantname 标识身份，其可用资源、默认配置、
+    agent 会话等均通过 tenant_id 关联到本表。
+    """
     __tablename__ = "Tenant"
     id = Column(Integer, primary_key=True, index=True)
-    tenantname = Column(String(50), nullable=False)
+    tenantname = Column(String(50), unique=True, index=True, nullable=False, comment="租户名，终端业务身份标识")
     job = Column(Text, default=None, comment="\u5de5\u4f5c\u63cf\u8ff0")
     phone_number = Column(String(64), index=True, comment="\u7535\u8bdd\u53f7\u7801")
     nickname = Column(String(100), default=None, comment="真实姓名")
@@ -54,7 +64,7 @@ class SourceList(Base):
     id = Column(Integer, primary_key=True, index=True)
     type = Column(String(30), index=True, comment="资源类型，TTS | LLM | ASR")
     reference_id = Column(Integer, index=True, comment="映射的资源id")
-    user_id = Column(Integer, index=True, comment="持有资源的用户id")
+    tenant_id = Column(Integer, index=True, comment="持有资源的租户id（Tenant.id）")
     is_default = Column(Boolean, index=True, default=False, comment="是否是默认资源")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
@@ -163,7 +173,7 @@ class AgentSessionManagement(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(88), index=True, comment="session id")
-    user_id = Column(Integer, index=True, comment="user id")
+    tenant_id = Column(Integer, index=True, comment="tenant id（Tenant.id）")
     agent_id = Column(Integer, comment="agent id")
     asr_id = Column(Integer, comment="asr id")
     tts_id = Column(Integer, comment="tts id")

@@ -34,6 +34,9 @@ class JwtAccessToken:
             raise JwtAuthError()
 
 
-async def validate_accesskey(Authorization = Header()):
+async def validate_accesskey(Authorization: str = Header(default=None)):
+    """校验 JWT。缺少 Authorization 头时同样按未认证处理（401），而非 422。"""
+    if not Authorization:
+        raise JwtAuthError()
     if Authorization.startswith("Bearer "): Authorization = Authorization.replace("Bearer ", "")
     return await JwtAccessToken(config_data["AUTH_CONFIG"]["secret_key"]).verify_token(Authorization)

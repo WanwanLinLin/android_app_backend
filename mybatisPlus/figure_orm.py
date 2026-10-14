@@ -9,7 +9,7 @@ from datetime import datetime
 from datetime import datetime, timedelta
 
 from utils.common.enumTaskType import SourceTypeEnum
-from .tables.industrial_park import (FigureFactories, User, SourceList)
+from .tables.industrial_park import (FigureFactories, Tenant, SourceList)
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -80,17 +80,17 @@ async def get_one_figure(id: int):
 
 
 
-async def get_user_figure_list(username: str):
+async def get_user_figure_list(tenantname: str):
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            # 1. 查询用户（仅一次）
-            user = await session.scalar(select(User).filter_by(username=username))
-            if not user:
+            # 1. 查询租户（仅一次）
+            tenant = await session.scalar(select(Tenant).filter_by(tenantname=tenantname))
+            if not tenant:
                 return None
 
-            # 2. 查询该用户的所有 source（一次）
+            # 2. 查询该租户的所有 source（一次）
             sources = await session.scalars(
-                select(SourceList).filter_by(user_id=user.id)
+                select(SourceList).filter_by(tenant_id=tenant.id)
             )
             sources = list(sources)  # 转为列表便于多次迭代
 

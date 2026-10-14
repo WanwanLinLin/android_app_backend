@@ -16,13 +16,14 @@ import websockets
 from utils.apierror import AccessKeyAuthError
 from . import schema
 from fastapi.responses import StreamingResponse, FileResponse
-from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, UploadFile, Form, File
+from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, Query, UploadFile, Form, File
 from pydub import AudioSegment
 from utils.common.schema import GeneticResponse
 from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3)
 from utils.common.enumTaskType import WebsocketServerEvent
-from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
+from mybatisPlus.tenant_orm import (get_source_list, get_source_config,
+                                    get_default_source_config, save_default_source_config)
 from mybatisPlus.agent_orm import manage_agent_session
 from utils.getLogs import LOG
 from setting import config_data, vad_model_paths
@@ -30,30 +31,36 @@ from setting import config_data, vad_model_paths
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
-@router.post("/v1/stream/getSourceList", summary="获取用户拥有的资源列表", tags=["通用接口"],
+@router.post("/v1/stream/getSourceList", summary="获取租户拥有的资源列表", tags=["通用接口"],
              dependencies=[Depends(validate_stream_accesskey)])
-async def _get_source_list(username: str):
-    return GeneticResponse(data=await get_source_list(username))
+async def _get_source_list(tenantname: str = Query(default=None), username: str = Query(default=None)):
+    """业务归属已切换为 Tenant。
+
+    终端旧版本仍以 username 传租户名，故二者皆接受，优先 tenantname。
+    """
+    return GeneticResponse(data=await get_source_list(tenantname or username))
 
 
-# @router.post("/v1/stream/getSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+# @router.post("/v1/stream/getSourceConfig", summary="获取租户当前使用的资源", tags=["通用接口"])
 # async def _get_source_config():
 #     return GeneticResponse(data=await get_source_config())
 
 
-@router.post("/v1/stream/getDefaultSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
-async def _get_default_source_config(username: str):
-    return GeneticResponse(data=await get_default_source_config(username))
+@router.post("/v1/stream/getDefaultSourceConfig", summary="获取租户当前使用的资源", tags=["通用接口"])
+async def _get_default_source_config(tenantname: str = Query(default=None), username: str = Query(default=None)):
+    return GeneticResponse(data=await get_default_source_config(tenantname or username))
 
 
-@router.post("/v1/stream/saveDefaultSourceConfig", summary="获取用户当前使用的资源", tags=["通用接口"])
+@router.post("/v1/stream/saveDefaultSourceConfig", summary="保存租户默认资源", tags=["通用接口"])
 async def _save_default_source_config(info: schema.SaveDefaultSourceConfig):
-    await save_default_source_config(**info.model_dump())
+    await save_default_source_config(tenantname=info.tenantname or info.username,
+                                     llm_id=info.llm_id, tts_id=info.tts_id, asr_id=info.asr_id)
     return GeneticResponse()
 
 
 @router.websocket("/v1/stream/recognition")
 async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeStamp: str):
+    """uid 为终端上报的业务身份标识，即 Tenant.tenantname。"""
     await websocket.accept()
     if not OnewayEncryption().verify_token(timeStamp, token): raise AccessKeyAuthError
     prompt = await websocket.receive_json()
@@ -93,7 +100,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     
     conn.executor.submit(asyncio.run_coroutine_threadsafe, manage_agent_session(type="create", session_id=conn.session_id,
                                                            agent_id=llm_config.get("id"), asr_id=asr_config.get("id"),
-                                                           tts_id=tts_config.get("id"), user_id=uid), conn.loop)
+                                                           tts_id=tts_config.get("id"), tenant_id=uid), conn.loop)
 
     # server_vad模式
     try:

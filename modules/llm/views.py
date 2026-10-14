@@ -21,7 +21,7 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 
 
 @router.post("/v1/agent/list", summary="获取大模型列表", tags=["通用接口"])
-async def _add_agent(info: schema.AddLLModel):
+async def _list_agents():
     return GeneticResponse(data= await get_agent_list())
 
 

@@ -7,7 +7,7 @@ from typing import Union, List, Dict
 
 from datetime import datetime
 from datetime import datetime, timedelta
-from .tables.industrial_park import (LLMFactories, AgentSessionManagement, User)
+from .tables.industrial_park import (LLMFactories, AgentSessionManagement, Tenant)
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -77,8 +77,8 @@ async def manage_agent_session(**kwargs):
             _type = kwargs.get("type")
             del kwargs["type"]
             if _type == "create":
-                user = await session.scalar(select(User).filter_by(username=kwargs["user_id"]))
-                kwargs["user_id"] = user.id
+                tenant = await session.scalar(select(Tenant).filter_by(tenantname=kwargs["tenant_id"]))
+                kwargs["tenant_id"] = tenant.id
                 new_record = AgentSessionManagement(**kwargs)
                 session.add(new_record)
                 return True

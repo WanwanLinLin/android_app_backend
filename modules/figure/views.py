@@ -11,7 +11,7 @@ import asyncio
 import aiofiles
 from . import schema
 from fastapi.responses import StreamingResponse, FileResponse
-from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, UploadFile, Form, File
+from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, Query, UploadFile, Form, File
 from pydub import AudioSegment
 from mybatisPlus.figure_orm import (get_figure_list, add_one_figure, get_one_figure, get_user_figure_list)
 from utils.common.schema import GeneticResponse
@@ -39,9 +39,10 @@ async def _get_one_figure(id: int):
     return GeneticResponse(code=400, msg="data not exist")
 
 
-@router.post("/v1/figure/user/list", summary="静态资源列表", tags=["通用接口"])
-async def figure_list(username: str):
-    return GeneticResponse(data=await get_user_figure_list(username))
+@router.post("/v1/figure/user/list", summary="租户静态资源列表", tags=["通用接口"])
+async def figure_list(tenantname: str = Query(default=None), username: str = Query(default=None)):
+    """归属主体为 Tenant；username 为终端旧字段别名，二者皆可。"""
+    return GeneticResponse(data=await get_user_figure_list(tenantname or username))
 
 
 @router.get("/v1/figure/download/{type}/{filename}", dependencies=[Depends(validate_stream_accesskey)])
