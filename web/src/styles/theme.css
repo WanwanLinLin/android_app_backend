@@ -1,0 +1,115 @@
+/* ============================================================
+   全局主题：浅色底 + 靛蓝/青渐变点缀
+   仅覆盖 Element Plus CSS 变量与少量全局样式，不引入深色面
+   ============================================================ */
+:root {
+  --dh-primary: #6366f1;
+  --dh-primary-2: #06b6d4;
+  --dh-purple: #8b5cf6;
+  --dh-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #06b6d4 100%);
+  --dh-gradient-soft: linear-gradient(135deg, #eef1ff 0%, #f3ecfe 55%, #e8fbff 100%);
+  --dh-shadow-card: 0 2px 12px rgba(99, 102, 241, 0.08);
+  --dh-shadow-float: 0 8px 30px rgba(99, 102, 241, 0.14);
+
+  /* Element Plus 主色覆盖（靛蓝） */
+  --el-color-primary: #6366f1;
+  --el-color-primary-light-3: #8f91f5;
+  --el-color-primary-light-5: #b1b2f8;
+  --el-color-primary-light-7: #d3d4fb;
+  --el-color-primary-light-8: #e4e4fc;
+  --el-color-primary-light-9: #f0f0fe;
+  --el-color-primary-dark-2: #4f51d9;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+}
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1f2430;
+  background:
+    radial-gradient(1200px 500px at 15% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(1000px 460px at 110% 10%, rgba(6, 182, 212, 0.10), transparent 55%),
+    #f5f7fc;
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.25); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.45); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 卡片统一风格 */
+.el-card {
+  border: 1px solid rgba(99, 102, 241, 0.10) !important;
+  box-shadow: var(--dh-shadow-card) !important;
+  border-radius: 14px !important;
+}
+
+/* 表格去硬边框、表头渐变浅底 */
+.el-table { border-radius: 12px; overflow: hidden; }
+.el-table th.el-table__cell {
+  background: var(--dh-gradient-soft) !important;
+  color: #3b3f52 !important;
+  font-weight: 600;
+}
+.el-table--border, .el-table td.el-table__cell { border-color: #eef0f7 !important; }
+.el-table--border .el-table__cell { border-right-color: #eef0f7 !important; }
+.el-table__row:hover > td.el-table__cell { background: #f4f5ff !important; }
+
+/* 主按钮渐变 */
+.el-button--primary {
+  background: linear-gradient(135deg, #6366f1, #06b6d4) !important;
+  border: none !important;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.el-button--primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+  transform: translateY(-1px);
+}
+.el-button--primary:active { transform: translateY(0); }
+
+/* 弹窗圆角 */
+.el-dialog { border-radius: 16px; overflow: hidden; }
+.el-dialog__header {
+  background: var(--dh-gradient-soft);
+  margin-right: 0 !important;
+  padding: 16px 20px !important;
+}
+.el-dialog__title { font-weight: 600; letter-spacing: 0.5px; }
+
+/* 抽屉头部 */
+.el-drawer__header {
+  background: var(--dh-gradient-soft);
+  margin-bottom: 0 !important;
+  padding: 18px 20px !important;
+}
+
+/* 页面通用容器 */
+.page-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: var(--dh-shadow-card);
+  border: 1px solid rgba(99, 102, 241, 0.08);
+}
+
+/* 渐变文字工具类 */
+.grad-text {
+  background: var(--dh-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 入场动画
+   注意：终态必须是 transform: none。若留 translateY(0)，配合 fill-mode:both
+   会让元素长期带 transform，从而成为 fixed 后代的包含块，
+   导致 el-dialog 遮罩不再相对视口定位（数据少时被容器裁切、看不见编辑框）。 */
+@keyframes dh-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.fade-up { animation: dh-fade-up 0.45s ease forwards; }

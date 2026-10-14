@@ -1,7 +1,7 @@
 import json
 import redis
 import requests
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from pydantic import BaseModel, field_validator
 from typing import Union, List, Dict
 
@@ -27,14 +27,23 @@ class _GetASRList(BaseModel):
     class Config:
         from_attributes = True
         protected_namespaces = ()
-        
+
+    @field_validator("params", mode="before")
+    def parse_params(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return None
+        return v
+
     @field_validator("create_time")
     def get_create_time(cls, v, values):
-        return datetime.strftime(v, "%Y-%m-%d %H:%M:%S")
-    
+        return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
+
     @field_validator("update_time")
     def get_update_time(cls, v, values):
-        return datetime.strftime(v, "%Y-%m-%d %H:%M:%S")
+        return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
 
 
 async def get_asr_list():
@@ -42,8 +51,10 @@ async def get_asr_list():
     total_len = 0
     async with AsyncSessionLocal() as session:
         async with session.begin():  # 开启事务
+            # 存量数据 is_delete 可能为 NULL，NULL 与 False 均视为有效
             voices = await session.scalars(
-                select(ASRFactories))
+                select(ASRFactories).where(
+                    or_(ASRFactories.is_delete.is_(None), ASRFactories.is_delete.is_(False))))
             # total_len = len(voices.all())
             for i in voices.all():
                 total_len += 1
@@ -69,4 +80,29 @@ async def get_one_asr(id: int):
                 data = _GetASRList.model_validate(voice).model_dump()
                 return data
             return None
+
+
+async def update_one_asr(id: int, **kwargs):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            asr = await session.scalar(select(ASRFactories).filter_by(id=id))
+            if not asr:
+                return GeneticResponse(code=400, msg="data not exist")
+            for k in ("type", "url", "desc", "apikey", "params"):
+                if kwargs.get(k, None) is not None:
+                    setattr(asr, k, kwargs.get(k))
+            session.add(asr)
+            return GeneticResponse()
+
+
+async def delete_one_asr(id: int):
+    """软删除语音识别模型。"""
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            asr = await session.scalar(select(ASRFactories).filter_by(id=id))
+            if not asr:
+                return GeneticResponse(code=400, msg="data not exist")
+            asr.is_delete = True
+            session.add(asr)
+            return GeneticResponse()
 

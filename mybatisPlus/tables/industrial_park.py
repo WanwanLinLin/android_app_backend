@@ -1,7 +1,9 @@
 # -*- coding：utf-8 -*-
 from .sqlcli import Base
 from sqlalchemy.orm import relationship
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Float, func
+# 本项目不使用数据库外键约束：请勿在此引入 ForeignKey / create_foreign_key，
+# 表间引用完整性一律由应用层校验保证。
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, Text, Float, func
 from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime, timedelta, timezone
 
@@ -38,6 +40,7 @@ class Tenant(Base):
     """
     __tablename__ = "Tenant"
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, default=None, comment="归属的后台管理员id（User.id，本项目不使用外键约束）")
     tenantname = Column(String(50), unique=True, index=True, nullable=False, comment="租户名，终端业务身份标识")
     job = Column(Text, default=None, comment="\u5de5\u4f5c\u63cf\u8ff0")
     phone_number = Column(String(64), index=True, comment="\u7535\u8bdd\u53f7\u7801")

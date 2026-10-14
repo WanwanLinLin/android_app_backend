@@ -7,7 +7,7 @@
 业务归属（资源列表、默认配置、agent 会话等）一律以 Tenant 为主体，
 统一由 mybatisPlus.tenant_orm 提供，本模块不再涉及。
 """
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from .tables.industrial_park import User
 from .tables.sqlcli import AsyncSessionLocal
@@ -31,3 +31,16 @@ async def get_admin(username: str):
             return None
         return {"id": user.id, "username": user.username, "role": user.role,
                 "nickname": user.nickname}
+
+
+async def list_admins():
+    """管理员账号精简列表（id/username/nickname/role），供前端下拉选择。
+
+    存量 is_delete 可能为 NULL，NULL 或 False 视为有效。
+    """
+    async with AsyncSessionLocal() as session:
+        users = await session.scalars(
+            select(User).where(or_(User.is_delete.is_(None), User.is_delete.is_(False)))
+        )
+        return [{"id": u.id, "username": u.username, "nickname": u.nickname,
+                 "role": u.role} for u in users]

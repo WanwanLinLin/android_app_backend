@@ -1,11 +1,11 @@
 from datetime import datetime
 from typing import Union, List
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from utils.common.schema import GeneticResponse
 from .tables.industrial_park import (ASRFactories, Tenant, SourceList, LLMFactories,
-                                     TTSFactories, DigitalHumanChatTemplate)
+                                     TTSFactories, DigitalHumanChatTemplate, User)
 from .tables.sqlcli import AsyncSessionLocal
 from utils.common.enumTaskType import SourceTypeEnum
 
@@ -101,6 +101,7 @@ class _GetChatTemplateList2(BaseModel):
 
 class _TenantDetail(BaseModel):
     id: int
+    user_id: Union[int, None]
     tenantname: Union[str, None]
     nickname: Union[str, None]
     job: Union[str, None]
@@ -121,8 +122,14 @@ async def create_tenant(**kwargs):
             )
             if exist:
                 return GeneticResponse(code=400, msg="租户已存在")
+            user_id = kwargs.get("user_id")
+            if user_id is not None:
+                user = await session.scalar(select(User).filter_by(id=user_id))
+                if not user:
+                    return GeneticResponse(code=400, msg="user_id 对应的管理员不存在")
             new_tenant = Tenant(**kwargs)
             session.add(new_tenant)
+            await session.flush()  # 先落库取回自增 id，否则返回 data.id 恒为 None
             return GeneticResponse(data={"id": new_tenant.id})
 
 
@@ -150,7 +157,11 @@ async def update_tenant(tenant_id: int, **kwargs):
             )
             if not tenant:
                 return GeneticResponse(code=400, msg="租户不存在")
-            for k in ("nickname", "job", "phone_number"):
+            if kwargs.get("user_id") is not None:
+                user = await session.scalar(select(User).filter_by(id=kwargs.get("user_id")))
+                if not user:
+                    return GeneticResponse(code=400, msg="user_id 对应的管理员不存在")
+            for k in ("user_id", "nickname", "job", "phone_number"):
                 if kwargs.get(k, None) is not None:
                     setattr(tenant, k, kwargs.get(k))
             session.add(tenant)
@@ -169,7 +180,102 @@ async def delete_tenant(tenant_id: int):
             return GeneticResponse()
 
 
+# ===================== 租户资源绑定（Tenant 添加 tts/asr/llm 等资源）=====================
+
+async def bind_source(tenant_id: int, type: str, reference_id: int):
+    """把一条资源（SourceList 行）绑定到租户。
+
+    同一 (type, reference_id, tenant_id) 已存在时直接返回成功（幂等），
+    避免重复绑定产生脏数据。
+    """
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            tenant = await session.scalar(
+                select(Tenant).filter_by(id=tenant_id, is_delete=False))
+            if not tenant:
+                return GeneticResponse(code=400, msg="租户不存在")
+            exist = await session.scalar(
+                select(SourceList).filter_by(
+                    tenant_id=tenant_id, type=type, reference_id=reference_id))
+            if exist:
+                if exist.is_delete:
+                    exist.is_delete = False
+                    session.add(exist)
+                return GeneticResponse(msg="已绑定")
+            session.add(SourceList(tenant_id=tenant_id, type=type,
+                                   reference_id=reference_id, is_delete=False))
+            return GeneticResponse()
+
+
+async def unbind_source(tenant_id: int, type: str, reference_id: int):
+    """解绑（软删除 SourceList 行）。"""
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            source = await session.scalar(
+                select(SourceList).filter_by(
+                    tenant_id=tenant_id, type=type, reference_id=reference_id))
+            if not source:
+                return GeneticResponse(code=400, msg="绑定关系不存在")
+            source.is_delete = True
+            session.add(source)
+            return GeneticResponse()
+
+
+async def list_bound_sources(tenant_id: int):
+    """列出租户已绑定的资源（SourceList 行，含未绑定过滤）。"""
+    async with AsyncSessionLocal() as session:
+        rows = await session.scalars(
+            select(SourceList).filter_by(tenant_id=tenant_id).where(
+                or_(SourceList.is_delete.is_(None), SourceList.is_delete.is_(False))))
+        return [{"id": s.id, "type": s.type, "reference_id": s.reference_id,
+                 "is_default": bool(s.is_default)} for s in rows]
+
+
+async def set_source_default(tenant_id: int, type: str, reference_id: int):
+    """把租户某类型下的指定绑定设为默认。
+
+    同 (tenant_id, type) 下其余绑定 is_default 归零，仅目标为 1，
+    保证每类型至多一个默认。对 TTS/ASR/LLM/CHATTEMPLATE 通用。
+    沿用 save_default_source_config 的写法：SourceList.is_default 直接置 1。
+    """
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            rows = await session.scalars(
+                select(SourceList).filter_by(tenant_id=tenant_id, type=type).where(
+                    or_(SourceList.is_delete.is_(None), SourceList.is_delete.is_(False))))
+            rows = list(rows)
+            target = next((r for r in rows if r.reference_id == reference_id), None)
+            if not target:
+                return GeneticResponse(code=400, msg="绑定关系不存在")
+            for r in rows:
+                r.is_default = (r.id == target.id)
+                session.add(r)
+            return GeneticResponse()
+
+
 # ===================== 租户业务归属查询 =====================
+
+async def list_tenants_by_username(username: str):
+    """按后台管理员账号（User.username）取其名下的租户列表。
+
+    归属关系走 Tenant.user_id 外键（FK -> User.id）：先按 username 查到
+    User.id，再取 Tenant.user_id 等于它的所有租户。安卓端用管理员账号
+    登录后，据此拿到可操作的租户身份。
+
+    软删过滤沿用列表口径：存量 is_delete 可能为 NULL，须 NULL 或 False 视为有效。
+    """
+    async with AsyncSessionLocal() as session:
+        user = await session.scalar(
+            select(User).filter_by(username=username).where(
+                or_(User.is_delete.is_(None), User.is_delete.is_(False))))
+        if not user:
+            return None
+        tenants = await session.scalars(
+            select(Tenant).filter_by(user_id=user.id).where(
+                or_(Tenant.is_delete.is_(None), Tenant.is_delete.is_(False)))
+        )
+        return [_TenantDetail.model_validate(t).model_dump() for t in tenants]
+
 
 async def get_source_list(tenantname: str):
     async with AsyncSessionLocal() as session:
