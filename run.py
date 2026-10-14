@@ -1,7 +1,4 @@
-import sys
-
 from fastapi.staticfiles import StaticFiles
-sys.path.append("./3rd")
 
 import traceback
 from fastapi.responses import JSONResponse

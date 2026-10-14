@@ -1,7 +1,3 @@
-import sys
-
-sys.path.append("../../3rd")
-
 import torch
 
 import re
@@ -19,13 +15,31 @@ from queue import Queue
 from collections import deque
 from fastapi import FastAPI, WebSocket
 from pydantic import BaseModel
-from FireRedVadCppLib import FireRedVadCpp
+from fireredvad import FireRedVadCpp
 from funasr import AutoModel
 from datetime import datetime
 
 yaml_path = "../../config.yaml"
 with open(yaml_path, 'r') as file:
     config_data = yaml.load(file, Loader=yaml.FullLoader)
+
+
+VAD_MODEL_FILES = (
+    "firered_vad_packed_cache_stream.ncnn.param",
+    "firered_vad_packed_cache_stream.ncnn.bin",
+    "cmvn_means_stream.bin",
+    "cmvn_istd_stream.bin",
+)
+
+
+def vad_model_paths(base_path: str = "") -> tuple:
+    """优先用 config.yaml MODEL_CONFIG 指定的外部模型目录，缺失时回退到 fireredvad 包内置模型。"""
+    import fireredvad
+
+    if base_path and os.path.exists(os.path.join(base_path, VAD_MODEL_FILES[0])):
+        return tuple(os.path.join(base_path, name) for name in VAD_MODEL_FILES)
+    return tuple(fireredvad.model_path(name) for name in VAD_MODEL_FILES)
+
 
 app = FastAPI()
 CHUNK_SIZE = 320
@@ -112,13 +126,10 @@ class ConnectionObjectCustomVadV2:
         self.vad_min_thre = vad_min_thre
         self.use_aed = use_aed
         
-        # firered-vad cpp 高性能版
+        # firered-vad cpp 高性能版（模型随 fireredvad 包发布，外部路径缺失时自动回退）
         self.firered_vad = FireRedVadCpp()
         self.firered_vad.init(
-            config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.param",
-            config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.bin",
-            config_data["MODEL_CONFIG"][0]["path"] + "cmvn_means_stream.bin",
-            config_data["MODEL_CONFIG"][0]["path"] + "cmvn_istd_stream.bin",
+            *vad_model_paths(config_data["MODEL_CONFIG"][0]["path"]),
             16000, 10, 25, 0.9,
         )
         

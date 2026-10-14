@@ -24,7 +24,7 @@ from copy import deepcopy
 from collections import OrderedDict, deque
 from pydub import AudioSegment
 from pyaec3.api.PyAec3Lib import PyAec3
-from FireRedVadCppLib import FireRedVadCpp
+from fireredvad import FireRedVadCpp
 from collections import deque, OrderedDict
 from fastapi import WebSocket, WebSocketDisconnect
 from setting import *

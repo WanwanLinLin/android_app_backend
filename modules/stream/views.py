@@ -25,7 +25,7 @@ from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.user_orm import get_source_list, get_source_config, get_default_source_config, save_default_source_config
 from mybatisPlus.agent_orm import manage_agent_session
 from utils.getLogs import LOG
-from setting import config_data
+from setting import config_data, vad_model_paths
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -63,10 +63,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
                                       vad_min_thre=prompt.get("vad_min_thre", 0.65), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
     # conn.pa.initAec(1, 16000, 16, 1, 16000, 16)
     conn.frv.init(
-        config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.param",
-        config_data["MODEL_CONFIG"][0]["path"] + "firered_vad_packed_cache_stream.ncnn.bin",
-        config_data["MODEL_CONFIG"][0]["path"] + "cmvn_means_stream.bin",
-        config_data["MODEL_CONFIG"][0]["path"] + "cmvn_istd_stream.bin",
+        *vad_model_paths(config_data["MODEL_CONFIG"][0]["path"]),
         16000, 10, 25, 0.9,
     )
     conn.chat_mode = prompt.get("prompt","aec")
