@@ -38,6 +38,7 @@ class TTSProvider(TTSProviderBase):
         self.tag = config.get("tag")
         self.audio_data = b''
         self.sr = 16000
+        self.src_rate = 24000  # 上游音频原始采样率，以 SSE 事件中的 sample_rate 为准
         self.speed = 1.0
     
     def custom_text_front(self, text):
@@ -129,8 +130,6 @@ class TTSProvider(TTSProviderBase):
             await reader.close()
             return 1
         else:
-            if len(text) < 12: use_stream = False
-            else: use_stream = True
             nums = 0
             for i in range(5):
                 nums += 1
@@ -143,12 +142,12 @@ class TTSProvider(TTSProviderBase):
                 try:
                     input_data = {
                         "input": text,
-                        "task_type": "CustomVoice",
+                        "task_type": "Base",
                         # "ref_audio": "http://113.108.106.173:8856/files/others/ICL_zh_female_tianmeixiaoyu_cs_tob.wav",
                         # "ref_audio": "file:///data/hbh/cproject/vllm-omni/audios/ICL_zh_female_tianmeixiaoyu_cs_tob.wav",
                         # "ref_text": "欢迎来到故宫博物院，这里是明清两代的皇家宫殿。",
                         "voice": self.voice,
-                        "stream": use_stream,
+                        "stream": True,
                         "seed": 1314,
                         "response_format": self.format,
                         "non_streaming_mode": False
@@ -158,33 +157,56 @@ class TTSProvider(TTSProviderBase):
                     nums = 0
                     state = None
                     buffer = bytearray()
-                    chunk_nums = 0
+                    self.audio_data = b''
                     async with httpx.AsyncClient() as client:
                         # 发起流式请求
                         async with client.stream("POST", self.url, json=input_data, timeout=300) as response:
                             response.raise_for_status()
 
-                            # 异步迭代二进制数据块
-                            async for chunk in response.aiter_bytes(chunk_size=320):
-                                if chunk:
-                                    chunk_nums += 1
-                                    # # 跳过静音数据
-                                    if use_stream:
-                                        if chunk_nums <= 18: continue
-                                    converted, state = audioop.ratecv(
-                                        chunk, 2, 1, 24000, 16000, state
-                                    )
-                                    buffer.extend(converted)
-                                    while len(buffer) >= 640:
-                                        # 取出前 320 字节
-                                        data = buffer[:640]
-                                        del buffer[:640]
-                                        # 处理 data（正好 320 字节）
-                                        # print(f"{datetime.now()} len(data) is {len(data)} || len(converted) is {len(converted)}")
-                                        conn.tts_data_queue.put(bytes(data))
-                                        self.delay_q.append(bytes(data))
-                                        self.audio_data += bytes(data)
-                            # 循环结束后，如果缓冲区有剩余（< 320 字节）
+                            # 上游为 SSE 流（text/event-stream）：
+                            #   event: speech.audio.delta
+                            #   data: {"type":"speech.audio.delta","audio":"<base64 pcm>",
+                            #          "response_format":"pcm","sample_rate":24000,"channels":1}
+                            #   ...
+                            #   event: speech.audio.done
+                            #   data: {"type":"speech.audio.done","usage":{...}}
+                            async for line in response.aiter_lines():
+                                if not line or not line.startswith("data:"):
+                                    continue
+                                payload = line[len("data:"):].strip()
+                                if not payload:
+                                    continue
+                                try:
+                                    event_obj = json.loads(payload)
+                                except json.JSONDecodeError:
+                                    LOG(f"vllm-omni tts 收到无法解析的 SSE data 行：{payload[:200]}", "DEBUG")
+                                    continue
+
+                                event_type = event_obj.get("type")
+                                if event_type == "speech.audio.done":
+                                    break
+                                audio_b64 = event_obj.get("audio")
+                                if not audio_b64:
+                                    continue
+
+                                pcm = base64.b64decode(audio_b64)
+                                # 采样率以上游事件声明为准（当前为 24000），变化时重置重采样状态
+                                src_rate = int(event_obj.get("sample_rate") or 24000)
+                                if state is not None and self.src_rate != src_rate:
+                                    state = None
+                                self.src_rate = src_rate
+                                converted, state = audioop.ratecv(
+                                    pcm, 2, 1, src_rate, self.sr, state
+                                )
+                                buffer.extend(converted)
+                                while len(buffer) >= 640:
+                                    # 取出前 640 字节（重采样后 16k/16bit，20ms 一帧）
+                                    data = buffer[:640]
+                                    del buffer[:640]
+                                    # print(f"{datetime.now()} len(data) is {len(data)} || len(converted) is {len(converted)}")
+                                    conn.tts_data_queue.put(bytes(data))
+                                    self.audio_data += bytes(data)
+                            # 循环结束后，如果缓冲区有剩余（< 640 字节）
                             if buffer:
                                 # 补零到 320 字节
                                 padding_length = 640 - len(buffer)

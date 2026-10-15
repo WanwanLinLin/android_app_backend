@@ -18,7 +18,8 @@ export default defineConfig({
     proxy: {
       // 开发态把 /v1 代理到后端，避免跨域；生产由部署层（nginx）同源转发
       '/v1': {
-        target: 'http://127.0.0.1:8852',
+        target: 'http://127.0.0.1:8852',    //本地开发
+        // target: 'http://113.108.106.173:8852',  // 线上
         changeOrigin: true
       }
     }
