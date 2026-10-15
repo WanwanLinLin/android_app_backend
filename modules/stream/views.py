@@ -46,12 +46,14 @@ async def _get_source_list(tenantname: str = Query(default=None), username: str 
 #     return GeneticResponse(data=await get_source_config())
 
 
-@router.post("/v1/stream/getDefaultSourceConfig", summary="获取租户当前使用的资源", tags=["通用接口"])
+@router.post("/v1/stream/getDefaultSourceConfig", summary="获取租户当前使用的资源", tags=["通用接口"],
+             dependencies=[Depends(validate_stream_accesskey)])
 async def _get_default_source_config(tenantname: str = Query(default=None), username: str = Query(default=None)):
     return GeneticResponse(data=await get_default_source_config(tenantname or username))
 
 
-@router.post("/v1/stream/saveDefaultSourceConfig", summary="保存租户默认资源", tags=["通用接口"])
+@router.post("/v1/stream/saveDefaultSourceConfig", summary="保存租户默认资源", tags=["通用接口"],
+             dependencies=[Depends(validate_stream_accesskey)])
 async def _save_default_source_config(info: schema.SaveDefaultSourceConfig):
     await save_default_source_config(tenantname=info.tenantname or info.username,
                                      llm_id=info.llm_id, tts_id=info.tts_id, asr_id=info.asr_id)

@@ -99,7 +99,7 @@ async def _list_tenants_by_username(username: str):
     token=SHA1(时间戳 + "\t" + app_key)，app_key 存于 Redis 的 hps_apikey。
     与 Web 后台的 JWT 接口相互独立，便于终端直接调用。
 
-    归属关系走 Tenant.user_id 外键（FK -> User.id）。
+    归属关系走 Tenant.user_id 列（本项目不使用外键，引用完整性由应用层保证）。
     """
     data = await list_tenants_by_username(username)
     if data is None:

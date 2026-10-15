@@ -17,16 +17,19 @@ from mybatisPlus.tts_orm import (get_voice_list, add_one_voice, get_one_voice,
                                  update_one_voice, delete_one_voice)
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
+from utils.auth import validate_accesskey
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
-@router.post("/v1/tts/list", summary="受支持的音色列表", tags=["通用接口"])
+@router.post("/v1/tts/list", summary="受支持的音色列表", tags=["通用接口"],
+             dependencies=[Depends(validate_accesskey)])
 async def voice_list():
     return GeneticResponse(data=await get_voice_list())
 
 
-@router.post("/v1/tts/add", summary="增加一个音色", tags=["通用接口"])
+@router.post("/v1/tts/add", summary="增加一个音色", tags=["通用接口"],
+             dependencies=[Depends(validate_accesskey)])
 async def add_voice(info: schema.AddVoiceModel):
     await add_one_voice(**info.model_dump())
     return GeneticResponse()

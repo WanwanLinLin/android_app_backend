@@ -16,17 +16,20 @@ from pydub import AudioSegment
 from mybatisPlus.figure_orm import (get_figure_list, add_one_figure, get_one_figure, get_user_figure_list)
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
+from utils.auth import validate_accesskey
 from setting import CURRENT_PATH
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
-@router.post("/v1/figure/list", summary="静态资源列表", tags=["通用接口"])
+@router.post("/v1/figure/list", summary="静态资源列表", tags=["通用接口"],
+             dependencies=[Depends(validate_accesskey)])
 async def figure_list():
     return GeneticResponse(data=await get_figure_list())
 
 
-@router.post("/v1/figure/add", summary="增加一个静态资源", tags=["通用接口"])
+@router.post("/v1/figure/add", summary="增加一个静态资源", tags=["通用接口"],
+             dependencies=[Depends(validate_accesskey)])
 async def add_figure(info: schema.AddFigureModel):
     await add_one_figure(**info.model_dump())
     return GeneticResponse()
@@ -39,7 +42,8 @@ async def _get_one_figure(id: int):
     return GeneticResponse(code=400, msg="data not exist")
 
 
-@router.post("/v1/figure/user/list", summary="租户静态资源列表", tags=["通用接口"])
+@router.post("/v1/figure/user/list", summary="租户静态资源列表", tags=["通用接口"],
+             dependencies=[Depends(validate_stream_accesskey)])
 async def figure_list(tenantname: str = Query(default=None), username: str = Query(default=None)):
     """归属主体为 Tenant；username 为终端旧字段别名，二者皆可。"""
     return GeneticResponse(data=await get_user_figure_list(tenantname or username))

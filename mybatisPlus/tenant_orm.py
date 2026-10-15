@@ -258,8 +258,8 @@ async def set_source_default(tenant_id: int, type: str, reference_id: int):
 async def list_tenants_by_username(username: str):
     """按后台管理员账号（User.username）取其名下的租户列表。
 
-    归属关系走 Tenant.user_id 外键（FK -> User.id）：先按 username 查到
-    User.id，再取 Tenant.user_id 等于它的所有租户。安卓端用管理员账号
+    归属关系走 Tenant.user_id 列（本项目不使用外键，引用完整性由应用层保证）：
+    先按 username 查到 User.id，再取 Tenant.user_id 等于它的所有租户。安卓端用管理员账号
     登录后，据此拿到可操作的租户身份。
 
     软删过滤沿用列表口径：存量 is_delete 可能为 NULL，须 NULL 或 False 视为有效。

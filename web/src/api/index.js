@@ -21,7 +21,8 @@ export const tenantSourceList = (id) => http.get(`/v1/tenant/${id}/source/list`)
 export const tenantSetDefault = (id, payload) => http.post(`/v1/tenant/${id}/source/setDefault`, payload)
 
 // ===================== 资源 CRUD（TTS / ASR / LLM / CHATTEMPLATE）=====================
-// 注意：list/add 为开放接口；get 详情中仅 TTS 受对称加密保护（getNeedsAccesskey: true）
+// 全部接口均需 JWT（http 拦截器自动注入 Authorization）；
+// TTS/figure 的 get 详情额外要求对称加密头（getNeedsAccesskey: true）
 export const RES_META = {
   TTS: { list: '/v1/tts/list', add: '/v1/tts/add', get: '/v1/tts/get/{id}', update: '/v1/tts/update/{id}', delete: '/v1/tts/delete/{id}', getNeedsAccesskey: true },
   ASR: { list: '/v1/asr/list', add: '/v1/asr/add', get: '/v1/asr/get/{id}', update: '/v1/asr/update/{id}', delete: '/v1/asr/delete/{id}', getNeedsAccesskey: false },
