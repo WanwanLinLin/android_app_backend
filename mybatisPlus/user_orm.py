@@ -23,9 +23,12 @@ async def get_password(username: str):
 
 
 async def get_admin(username: str):
+    """按用户名取有效管理员。软删过滤用 or_(NULL, False)：
+    存量 is_delete 可能为 NULL，filter_by(is_delete=False) 会漏掉这些行。"""
     async with AsyncSessionLocal() as session:
         user = await session.scalar(
-            select(User).filter_by(username=username, is_delete=False)
+            select(User).filter_by(username=username).where(
+                or_(User.is_delete.is_(None), User.is_delete.is_(False)))
         )
         if not user:
             return None

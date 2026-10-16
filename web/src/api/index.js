@@ -6,6 +6,7 @@ export * from './http'
 export const login = (payload) => http.post('/v1/user/login', payload)
 export const logout = () => http.post('/v1/user/logout')
 export const userList = () => http.get('/v1/user/list')
+export const me = () => http.get('/v1/user/me')
 
 // ===================== 租户管理（需 JWT）=====================
 export const tenantList = () => http.get('/v1/tenant/list')

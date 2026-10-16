@@ -2,16 +2,34 @@ import bcrypt
 from . import schema
 from fastapi import APIRouter, Depends, status
 from utils.common.schema import GeneticResponse
-from mybatisPlus.user_orm import get_password, list_admins
+from mybatisPlus.user_orm import get_password, list_admins, get_admin
 from mybatisPlus.tenant_orm import (create_tenant, list_tenants, get_tenant,
                                     update_tenant, delete_tenant, bind_source,
                                     unbind_source, list_bound_sources, set_source_default,
-                                    list_tenants_by_username)
+                                    list_tenants_by_username, is_tenant_owned)
 from utils.auth import JwtAccessToken, validate_accesskey
 from utils.common.auth import validate_stream_accesskey
+from utils.admin_auth import current_admin, is_admin
 from setting import config_data
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
+
+
+# 身份与归属控制依赖（current_admin / is_admin）已下沉至 utils.admin_auth，
+# 供资源池各模块（tts/asr/llm/chat_template）共用，避免循环导入。
+
+
+async def ensure_tenant_access(admin: dict, tenant_id: int):
+    """非 admin 角色只能操作自己名下的租户。无权时返回 403 响应体，有权返回 None。
+
+    归属判定走 Tenant.user_id（无外键，应用层校验）。返回 403 而非 404：
+    便于前端区分"不存在"和"不归你管"；若担心探测存在性可改为统一 404。
+    """
+    if is_admin(admin):
+        return None
+    if await is_tenant_owned(tenant_id, admin["id"]):
+        return None
+    return GeneticResponse(code=403, msg="无权操作该租户")
 
 
 # ===================== 管理员账号（User 仅负责登录）=====================
@@ -36,9 +54,13 @@ async def _login(info: schema.UserLogin):
             pres = False
     if not pres: return GeneticResponse(code=401, msg="Not authenticated")
     access_token = await JwtAccessToken(config_data["AUTH_CONFIG"]["secret_key"]).get_token(to_encode={"username": info.username})
+    # role 一并返回，前端据此隐藏资源池的新增/编辑/删除入口（后端仍独立强校验）
+    me = await get_admin(info.username)
     return GeneticResponse(data={
         "access_token": access_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "role": (me or {}).get("role"),
+        "nickname": (me or {}).get("nickname")
     })
     
 
@@ -58,35 +80,53 @@ async def _list_users():
     return GeneticResponse(data=data)
 
 
+@router.get("/v1/user/me", summary="当前登录账号信息", tags=["租户管理"])
+async def _me(admin: dict = Depends(current_admin)):
+    """前端登录后调用，获取自身 role，用于隐藏无权限的操作入口（如资源池编辑）。
+
+    真正的权限校验仍以后端为准，这里只是展示层辅助。
+    """
+    return GeneticResponse(data=admin)
+
+
 @router.post("/v1/tenant/add", summary="创建租户", tags=["租户管理"],
              dependencies=[Depends(validate_accesskey)])
 async def _add_tenant(info: schema.AddTenantModel):
     return await create_tenant(**info.model_dump(exclude_none=True))
 
 
-@router.get("/v1/tenant/list", summary="租户列表", tags=["租户管理"],
-            dependencies=[Depends(validate_accesskey)])
-async def _list_tenants():
-    return GeneticResponse(data=await list_tenants())
+@router.get("/v1/tenant/list", summary="租户列表", tags=["租户管理"])
+async def _list_tenants(admin: dict = Depends(current_admin)):
+    """admin 角色看全部租户；其余角色只看自己名下（Tenant.user_id 归属）。"""
+    data = await list_tenants(user_id=None if is_admin(admin) else admin["id"])
+    return GeneticResponse(data=data)
 
 
-@router.get("/v1/tenant/get/{tenant_id}", summary="租户详情", tags=["租户管理"],
-            dependencies=[Depends(validate_accesskey)])
-async def _get_tenant(tenant_id: int):
+@router.get("/v1/tenant/get/{tenant_id}", summary="租户详情", tags=["租户管理"])
+async def _get_tenant(tenant_id: int, admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     data = await get_tenant(tenant_id)
     if data: return GeneticResponse(data=data)
     return GeneticResponse(code=400, msg="tenant not exist")
 
 
-@router.post("/v1/tenant/update/{tenant_id}", summary="更新租户信息", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _update_tenant(tenant_id: int, info: schema.UpdateTenantModel):
-    return await update_tenant(tenant_id, **info.model_dump(exclude_none=True))
+@router.post("/v1/tenant/update/{tenant_id}", summary="更新租户信息", tags=["租户管理"])
+async def _update_tenant(tenant_id: int, info: schema.UpdateTenantModel,
+                         admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
+    # 仅 admin 可改归属（user_id），防止非管理员把租户挪到自己/他人名下
+    payload = info.model_dump(exclude_none=True)
+    if not is_admin(admin):
+        payload.pop("user_id", None)
+    return await update_tenant(tenant_id, **payload)
 
 
-@router.post("/v1/tenant/delete/{tenant_id}", summary="删除租户（软删除）", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _delete_tenant(tenant_id: int):
+@router.post("/v1/tenant/delete/{tenant_id}", summary="删除租户（软删除）", tags=["租户管理"])
+async def _delete_tenant(tenant_id: int, admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     return await delete_tenant(tenant_id)
 
 
@@ -108,26 +148,35 @@ async def _list_tenants_by_username(username: str):
 
 
 # ===================== 租户资源绑定（Tenant 添加 tts/asr/llm 等）=====================
+# 以下四个接口均带 tenant_id，一律经 ensure_tenant_access 做归属校验：
+# 非 admin 角色只能操作自己名下租户的资源，堵住越权改绑的洞。
 
-@router.post("/v1/tenant/{tenant_id}/source/bind", summary="为租户绑定资源", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _bind_source(tenant_id: int, info: schema.BindSourceModel):
+@router.post("/v1/tenant/{tenant_id}/source/bind", summary="为租户绑定资源", tags=["租户管理"])
+async def _bind_source(tenant_id: int, info: schema.BindSourceModel,
+                       admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     return await bind_source(tenant_id, info.type, info.reference_id)
 
 
-@router.post("/v1/tenant/{tenant_id}/source/unbind", summary="解绑租户资源", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _unbind_source(tenant_id: int, info: schema.BindSourceModel):
+@router.post("/v1/tenant/{tenant_id}/source/unbind", summary="解绑租户资源", tags=["租户管理"])
+async def _unbind_source(tenant_id: int, info: schema.BindSourceModel,
+                         admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     return await unbind_source(tenant_id, info.type, info.reference_id)
 
 
-@router.get("/v1/tenant/{tenant_id}/source/list", summary="租户已绑定资源列表", tags=["租户管理"],
-            dependencies=[Depends(validate_accesskey)])
-async def _list_bound_sources(tenant_id: int):
+@router.get("/v1/tenant/{tenant_id}/source/list", summary="租户已绑定资源列表", tags=["租户管理"])
+async def _list_bound_sources(tenant_id: int, admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     return GeneticResponse(data=await list_bound_sources(tenant_id))
 
 
-@router.post("/v1/tenant/{tenant_id}/source/setDefault", summary="设为租户默认资源", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _set_source_default(tenant_id: int, info: schema.BindSourceModel):
+@router.post("/v1/tenant/{tenant_id}/source/setDefault", summary="设为租户默认资源", tags=["租户管理"])
+async def _set_source_default(tenant_id: int, info: schema.BindSourceModel,
+                              admin: dict = Depends(current_admin)):
+    denied = await ensure_tenant_access(admin, tenant_id)
+    if denied: return denied
     return await set_source_default(tenant_id, info.type, info.reference_id)

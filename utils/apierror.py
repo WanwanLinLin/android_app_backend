@@ -1,6 +1,9 @@
 class JwtAuthError(Exception): ...
 
 
+class AdminRequiredError(Exception): ...
+
+
 class AccessKeyAuthError(Exception): ...
 
 

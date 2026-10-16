@@ -18,9 +18,12 @@ from mybatisPlus.agent_orm import (add_one_agent, get_one_agent, get_agent_list,
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
+from utils.admin_auth import require_admin
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
+
+# 资源池写操作（新增/更新/删除）一律仅 role=admin 可用，理由同 tts/views.py。
 
 @router.post("/v1/agent/list", summary="获取大模型列表", tags=["通用接口"],
              dependencies=[Depends(validate_accesskey)])
@@ -28,9 +31,8 @@ async def _list_agents():
     return GeneticResponse(data= await get_agent_list())
 
 
-@router.post("/v1/agent/add", summary="添加大模型/agent", tags=["通用接口"],
-             dependencies=[Depends(validate_accesskey)])
-async def _add_agent(info: schema.AddLLModel):
+@router.post("/v1/agent/add", summary="添加大模型/agent", tags=["通用接口"])
+async def _add_agent(info: schema.AddLLModel, admin: dict = Depends(require_admin)):
     await add_one_agent(**info.model_dump())
     return GeneticResponse()
 
@@ -43,13 +45,12 @@ async def _get_agent(id: int):
     return GeneticResponse(code=400, msg="data not exist")
 
 
-@router.post("/v1/agent/update/{id}", summary="更新大模型", tags=["通用接口"],
-             dependencies=[Depends(validate_accesskey)])
-async def _update_agent(id: int, info: schema.UpdateLLModel):
+@router.post("/v1/agent/update/{id}", summary="更新大模型", tags=["通用接口"])
+async def _update_agent(id: int, info: schema.UpdateLLModel,
+                        admin: dict = Depends(require_admin)):
     return await update_one_agent(id, **info.model_dump(exclude_none=True))
 
 
-@router.post("/v1/agent/delete/{id}", summary="删除大模型（软删除）", tags=["通用接口"],
-             dependencies=[Depends(validate_accesskey)])
-async def _delete_agent(id: int):
+@router.post("/v1/agent/delete/{id}", summary="删除大模型（软删除）", tags=["通用接口"])
+async def _delete_agent(id: int, admin: dict = Depends(require_admin)):
     return await delete_one_agent(id)

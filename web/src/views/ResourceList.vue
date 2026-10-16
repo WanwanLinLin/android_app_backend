@@ -10,10 +10,14 @@
           <el-input v-model="keyword" placeholder="搜索描述 / 标签 / 地址" clearable
                     :prefix-icon="Search" style="width: 240px" />
           <el-button :icon="Refresh" round plain @click="load">刷新</el-button>
-          <el-button type="primary" round @click="openAdd">
+          <el-button v-if="auth.isAdmin" type="primary" round @click="openAdd">
             <el-icon style="margin-right:4px"><Plus /></el-icon>新增{{ meta.label }}
           </el-button>
         </div>
+      </div>
+      <div v-if="!auth.isAdmin" class="readonly-tip">
+        <el-icon><InfoFilled /></el-icon>
+        资源池为全局共享数据，仅管理员可新增、编辑或删除；你可以查看并绑定到自己名下的租户
       </div>
       <div v-if="meta.getNeedsAccesskey" class="ak-tip">
         <el-icon><Lock /></el-icon>
@@ -31,19 +35,19 @@
         </el-table-column>
         <el-table-column prop="create_time" label="创建时间" width="170" />
         <el-table-column prop="update_time" label="更新时间" width="170" />
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" :width="auth.isAdmin ? 230 : 100" fixed="right">
           <template #default="{ row }">
             <el-button size="small" round plain @click="openView(row)">
               <el-icon style="margin-right:3px"><View /></el-icon>查看
             </el-button>
-            <el-button size="small" round plain type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" round plain type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="auth.isAdmin" size="small" round plain type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="auth.isAdmin" size="small" round plain type="danger" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>
           <div class="empty">
             <el-icon :size="36" color="#c0c6d9"><Box /></el-icon>
-            <p>{{ keyword ? '没有匹配的资源' : '暂无资源，点击右上角新增' }}</p>
+            <p>{{ keyword ? '没有匹配的资源' : (auth.isAdmin ? '暂无资源，点击右上角新增' : '暂无资源') }}</p>
           </div>
         </template>
       </el-table>
@@ -80,10 +84,12 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock } from '@element-plus/icons-vue'
+import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
 import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete } from '@/api'
 import { RES_FIELDS } from './resFields'
+import { useAuthStore } from '@/stores/auth'
 
+const auth = useAuthStore()
 const props = defineProps({ resType: { type: String, required: true } })
 const meta = computed(() => RES_FIELDS[props.resType])
 const typeIcon = computed(() => ({

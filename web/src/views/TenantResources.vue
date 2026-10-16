@@ -37,6 +37,32 @@
       </div>
     </div>
 
+    <!-- 当前默认资源 -->
+    <div class="page-card default-card">
+      <div class="card-title">
+        <el-icon><Star /></el-icon>当前默认资源
+        <span class="card-sub">终端不下发 source_config 时，会话即使用以下资源</span>
+      </div>
+      <div class="default-grid">
+        <div v-for="t in TYPES" :key="t.value" class="default-item"
+             :class="{ unset: !defaultOf(t.value) }" :style="{ '--accent': t.color }">
+          <div class="default-head">
+            <span class="type-chip" :style="{ '--accent': t.color }">
+              <el-icon :size="13"><component :is="t.icon" /></el-icon>
+              {{ t.label }}
+            </span>
+          </div>
+          <div class="default-body">
+            <template v-if="defaultOf(t.value)">
+              <div class="default-main">{{ defaultSummary(t.value) }}</div>
+              <div class="default-sub mono">#{{ defaultOf(t.value).reference_id }}</div>
+            </template>
+            <div v-else class="default-none">未设置默认</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 绑定操作区 -->
     <div class="page-card bind-card">
       <div class="card-title"><el-icon><Link /></el-icon>添加资源绑定</div>
@@ -191,6 +217,16 @@ function summary(row) {
   return `#${opt.id} ${opt.desc || ''} ${opt.tag || opt.voice || ''}`.trim()
 }
 
+// 默认资源卡：主行放可读描述，资源 ID 单独一行（mono 样式），避免长文本挤压
+function defaultSummary(type) {
+  const d = defaultOf(type)
+  if (!d) return ''
+  const opt = (pool[type] || []).find((x) => x.id === d.reference_id)
+  if (!opt) return '资源已不在资源池（可能已删除）'
+  if (type === 'CHATTEMPLATE') return opt.desc || opt.module_path || '（无描述）'
+  return opt.desc || opt.tag || opt.voice || opt.type || '（无描述）'
+}
+
 async function doBind() {
   if (!bindRefId.value) { ElMessage.warning('请选择要绑定的资源'); return }
   binding.value = true
@@ -292,6 +328,29 @@ onMounted(async () => {
   font-size: 14.5px; font-weight: 650; color: #3b3f52; margin-bottom: 14px;
 }
 .card-title .el-icon { color: #6366f1; }
+.card-sub { margin-left: 8px; font-size: 12px; font-weight: 400; color: #98a0b3; }
+
+/* 当前默认资源 */
+.default-card { border-left: 3px solid rgba(245, 158, 11, 0.55); }
+.default-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.default-item {
+  background: color-mix(in srgb, var(--accent) 5%, #fbfcff);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, white);
+  border-radius: 12px; padding: 12px 14px; min-width: 0;
+}
+.default-item.unset {
+  background: #fafbfd; border-style: dashed;
+  border-color: rgba(144, 147, 153, 0.35);
+}
+.default-head { margin-bottom: 8px; }
+.default-body { min-height: 38px; }
+.default-main {
+  font-size: 13.5px; font-weight: 600; color: #23283b; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.default-sub { font-size: 11.5px; color: #8a90a5; margin-top: 4px; }
+.default-none { font-size: 13px; color: #a8afc2; padding-top: 8px; }
 
 .bind-card .bind-bar { display: flex; gap: 10px; align-items: center; }
 
@@ -308,5 +367,6 @@ onMounted(async () => {
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .default-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

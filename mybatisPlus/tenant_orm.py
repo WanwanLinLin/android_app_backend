@@ -115,7 +115,52 @@ class _TenantDetail(BaseModel):
 
 # ===================== 租户生命周期管理（User 管理员操作）=====================
 
+async def _first_resource_id(session, model):
+    """取某资源表「第一条」可用记录的 id。
+
+    「第一条」按 id 升序取最小者（自增主键，即最早录入的一条），并跳过软删记录
+    ——存量 is_delete 可能为 NULL，须 NULL 或 False 一并视为有效。
+    表内无可用记录时返回 None，由调用方决定跳过。
+    """
+    row = await session.scalar(
+        select(model.id).where(
+            or_(model.is_delete.is_(None), model.is_delete.is_(False))
+        ).order_by(model.id).limit(1)
+    )
+    return row
+
+
+async def _bind_default_sources(session, tenant_id: int) -> dict:
+    """给新租户把 TTS / ASR / LLM / CHATTEMPLATE 各绑第一条并置为默认。
+
+    建租户时调用，省掉后台手动逐条绑定 + 设默认的操作。每类型只绑一行且
+    is_default=True，与 set_source_default 维持的「每类型至多一个默认」口径一致。
+    某类型资源表为空时跳过该类型（不写脏绑定），结果在 bound 中如实反映。
+    与 create_tenant 共用同一 session/事务：绑定失败则租户一起回滚，不留半成品。
+    """
+    bound = {}
+    for source_type, model in (
+        (SourceTypeEnum.TTS.value, TTSFactories),
+        (SourceTypeEnum.ASR.value, ASRFactories),
+        (SourceTypeEnum.LLM.value, LLMFactories),
+        (SourceTypeEnum.CHATTEMPLATE.value, DigitalHumanChatTemplate),
+    ):
+        rid = await _first_resource_id(session, model)
+        if rid is None:
+            LOG(f"资源表 {model.__name__} 无可用记录，租户 {tenant_id} 跳过 {source_type} 自动绑定", "WARN")
+            continue
+        session.add(SourceList(tenant_id=tenant_id, type=source_type,
+                               reference_id=rid, is_default=True, is_delete=False))
+        bound[source_type] = rid
+    return bound
+
+
 async def create_tenant(**kwargs):
+    """创建租户，并自动把各类资源的第一条绑为默认。
+
+    auto_bind_defaults=False 时跳过自动绑定（例如需要完全自定义资源初始化的场景）。
+    """
+    auto_bind = kwargs.pop("auto_bind_defaults", True)
     async with AsyncSessionLocal() as session:
         async with session.begin():
             exist = await session.scalar(
@@ -131,13 +176,40 @@ async def create_tenant(**kwargs):
             new_tenant = Tenant(**kwargs)
             session.add(new_tenant)
             await session.flush()  # 先落库取回自增 id，否则返回 data.id 恒为 None
-            return GeneticResponse(data={"id": new_tenant.id})
+            data = {"id": new_tenant.id}
+            if auto_bind:
+                data["default_sources"] = await _bind_default_sources(session, new_tenant.id)
+            return GeneticResponse(data=data)
 
 
-async def list_tenants():
+async def list_tenants(user_id: int = None):
+    """租户列表。user_id 为空表示不限归属（管理员看全部），否则只返回该管理用户名下的租户。
+
+    软删过滤用 or_(NULL, False)：存量 is_delete 可能为 NULL，
+    原先的 filter_by(is_delete=False) 会漏掉这些行。
+    """
     async with AsyncSessionLocal() as session:
-        tenants = await session.scalars(select(Tenant).filter_by(is_delete=False))
+        stmt = select(Tenant).where(
+            or_(Tenant.is_delete.is_(None), Tenant.is_delete.is_(False)))
+        if user_id is not None:
+            stmt = stmt.where(Tenant.user_id == user_id)
+        tenants = await session.scalars(stmt)
         return [_TenantDetail.model_validate(t).model_dump() for t in tenants]
+
+
+async def is_tenant_owned(tenant_id: int, user_id: int) -> bool:
+    """租户是否属于该管理员（Tenant.user_id 直配，无外键，应用层校验）。
+
+    user_id 为 NULL 的未归属租户对非管理员一律不可见、不可操作。
+    """
+    if user_id is None:
+        return False
+    async with AsyncSessionLocal() as session:
+        tenant = await session.scalar(
+            select(Tenant).filter_by(id=tenant_id, user_id=user_id).where(
+                or_(Tenant.is_delete.is_(None), Tenant.is_delete.is_(False)))
+        )
+        return tenant is not None
 
 
 async def get_tenant(tenant_id: int):

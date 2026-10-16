@@ -54,6 +54,8 @@
         <div class="user-area">
           <el-avatar :size="32" class="avatar">{{ (auth.username || '?').slice(0, 1).toUpperCase() }}</el-avatar>
           <span class="uname">{{ auth.username }}</span>
+          <el-tag v-if="auth.isAdmin" size="small" type="warning" effect="light" round>管理员</el-tag>
+          <el-tag v-else-if="auth.role" size="small" type="info" effect="light" round>{{ auth.role }}</el-tag>
           <el-button size="small" round plain type="danger" @click="onLogout">
             <el-icon style="margin-right:4px"><SwitchButton /></el-icon>退出
           </el-button>
@@ -71,7 +73,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -93,6 +95,9 @@ const activeMenu = computed(() =>
 const today = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
 })
+
+// 本地 role 可能是旧值（历史登录未存、或管理员改过角色），进后台时向后端对齐一次
+onMounted(() => { auth.refreshMe() })
 
 async function onLogout() {
   try { await logout() } catch (e) { /* 忽略登出接口异常，本地照常清理 */ }
