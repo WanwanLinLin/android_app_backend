@@ -76,9 +76,12 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
         16000, 10, 25, 0.9,
     )
     conn.chat_mode = prompt.get("prompt","aec")
-    all_configs = await get_source_config(llm_id=prompt.get("source_config", {}).get("model_id", None),
-                                          tts_id=prompt.get("source_config", {}).get("tts_id", None),
-                                          asr_id=prompt.get("source_config", {}).get("asr_id", None),
+    # 客户端可不下发 source_config（或下发 null / 只带部分字段）；缺哪一项就由后端
+    # 用该租户在 SourceList 中标记的默认资源补齐，全缺时即完全走租户默认配置。
+    source_config = prompt.get("source_config") or {}
+    all_configs = await get_source_config(llm_id=source_config.get("model_id", None),
+                                          tts_id=source_config.get("tts_id", None),
+                                          asr_id=source_config.get("asr_id", None),
                                           uid=uid)
     llm_config = all_configs.get("llm_config")
     tts_config = all_configs.get("tts_config")

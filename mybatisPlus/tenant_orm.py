@@ -8,6 +8,7 @@ from .tables.industrial_park import (ASRFactories, Tenant, SourceList, LLMFactor
                                      TTSFactories, DigitalHumanChatTemplate, User)
 from .tables.sqlcli import AsyncSessionLocal
 from utils.common.enumTaskType import SourceTypeEnum
+from utils.getLogs import LOG
 
 
 class TenantModel(BaseModel):
@@ -326,15 +327,60 @@ async def get_source_list(tenantname: str):
             return {"llm": llm_list, "tts": tts_list, "asr": asr_list}
 
 
+async def _tenant_default_source_ids(session, tenantname: str) -> dict:
+    """取租户各类型下标记为默认的绑定，返回 {SourceTypeEnum.value: reference_id}。
+
+    租户不存在或没有任何默认绑定时返回空 dict，由调用方决定兜底。
+    同类型出现多行默认（历史脏数据）时取 id 最小的一行，保证结果稳定。
+    is_delete 为 NULL 的存量行按有效处理，与本项目其余查询口径一致。
+    """
+    if not tenantname:
+        return {}
+    tenant = await session.scalar(select(Tenant).filter_by(tenantname=tenantname))
+    if not tenant:
+        return {}
+    rows = await session.scalars(
+        select(SourceList).filter_by(tenant_id=tenant.id, is_default=True).where(
+            or_(SourceList.is_delete.is_(None), SourceList.is_delete.is_(False)))
+        .order_by(SourceList.id)
+    )
+    defaults = {}
+    for r in rows:
+        defaults.setdefault(r.type, r.reference_id)
+    return defaults
+
+
 async def get_source_config(**kwargs):
-    tts_id = kwargs.get("tts_id") if kwargs.get("tts_id", None) else 1
-    asr_id = kwargs.get("asr_id") if kwargs.get("asr_id", None) else 1
-    llm_id = kwargs.get("llm_id") if kwargs.get("llm_id", None) else 1
+    """解析一次会话实际使用的 LLM / TTS / ASR / 对话模板。
+
+    取值优先级：客户端 source_config 显式指定的 id > 租户在 SourceList 中的默认绑定
+    > id=1 兜底。最后一级只为兼容从未配置过默认资源的历史终端，避免直接中断会话。
+    """
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            tts_config = await session.scalar(select(TTSFactories).filter_by(id=tts_id))
-            asr_config = await session.scalar(select(ASRFactories).filter_by(id=asr_id))
-            llm_config = await session.scalar(select(LLMFactories).filter_by(id=llm_id))
+            defaults = await _tenant_default_source_ids(session, kwargs.get("uid"))
+
+            def _resolve(id_key: str, source_type: str) -> int:
+                given = kwargs.get(id_key)
+                if given:
+                    return given
+                return defaults.get(source_type) or 1
+
+            tts_id = _resolve("tts_id", SourceTypeEnum.TTS.value)
+            asr_id = _resolve("asr_id", SourceTypeEnum.ASR.value)
+            llm_id = _resolve("llm_id", SourceTypeEnum.LLM.value)
+
+            async def _load(model, rid):
+                """按 id 取资源行；绑定的资源已被删除时回落 id=1，避免 validate(None) 抛错。"""
+                row = await session.scalar(select(model).filter_by(id=rid))
+                if row is None and rid != 1:
+                    LOG(f"租户 {kwargs.get('uid')} 的默认资源 {model.__name__}#{rid} 不存在，回落 id=1", "WARN")
+                    row = await session.scalar(select(model).filter_by(id=1))
+                return row
+
+            tts_config = await _load(TTSFactories, tts_id)
+            asr_config = await _load(ASRFactories, asr_id)
+            llm_config = await _load(LLMFactories, llm_id)
             stmt = (
                 select(DigitalHumanChatTemplate)
                 .join(SourceList, SourceList.reference_id == DigitalHumanChatTemplate.id)
