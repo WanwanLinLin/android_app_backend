@@ -8,6 +8,7 @@ from typing import Union, List, Dict
 from datetime import datetime
 from datetime import datetime, timedelta
 from .tables.industrial_park import (TTSFactories, TTScache)
+from .shelf_orm import binding_guard
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -23,12 +24,18 @@ class _GetTTSList(BaseModel):
     voice: Union[str, None]
     apikey: Union[str, None]
     additional_param: Union[dict, None]
+    status: Union[str, None] = None
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
-    
+
     class Config:
         from_attributes = True
         protected_namespaces = ()
+
+    @field_validator("status", mode="before")
+    def norm_status(cls, v):
+        # 迁移前的存量行 status 为 NULL，语义等同在售
+        return v or "active"
 
     @field_validator("additional_param", mode="before")
     def parse_additional_param(cls, v):
@@ -106,12 +113,16 @@ async def update_one_voice(id: int, **kwargs):
 
 
 async def delete_one_voice(id: int):
-    """软删除音色。"""
+    """软删除音色。仍有租户绑定时拒绝——删除会让 SourceList 引用悬空，
+    租户配置直接失效；只是想停用请改用下架（off_shelf，存量绑定不受影响）。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             voice = await session.scalar(select(TTSFactories).filter_by(id=id))
             if not voice:
                 return GeneticResponse(code=400, msg="data not exist")
+            denied = await binding_guard("TTS", id, session)
+            if denied:
+                return denied
             voice.is_delete = True
             session.add(voice)
             return GeneticResponse()

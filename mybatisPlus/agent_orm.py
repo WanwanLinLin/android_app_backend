@@ -8,6 +8,7 @@ from typing import Union, List, Dict
 from datetime import datetime
 from datetime import datetime, timedelta
 from .tables.industrial_park import (LLMFactories, AgentSessionManagement, Tenant)
+from .shelf_orm import binding_guard
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -21,12 +22,18 @@ class _GetLLMList(BaseModel):
     desc: Union[str, None]
     apikey: Union[str, None]
     params: Union[dict, None]
+    status: Union[str, None] = None
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
     
     class Config:
         from_attributes = True
         protected_namespaces = ()
+
+    @field_validator("status", mode="before")
+    def norm_status(cls, v):
+        # 迁移前的存量行 status 为 NULL，语义等同在售
+        return v or "active"
 
     @field_validator("params", mode="before")
     def parse_params(cls, v):
@@ -96,12 +103,15 @@ async def update_one_agent(id: int, **kwargs):
 
 
 async def delete_one_agent(id: int):
-    """软删除大模型。"""
+    """软删除大模型。仍有租户绑定时拒绝，理由同 tts_orm.delete_one_voice。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             llm = await session.scalar(select(LLMFactories).filter_by(id=id))
             if not llm:
                 return GeneticResponse(code=400, msg="data not exist")
+            denied = await binding_guard("LLM", id, session)
+            if denied:
+                return denied
             llm.is_delete = True
             session.add(llm)
             return GeneticResponse()

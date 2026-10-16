@@ -12,6 +12,22 @@ def beijing_now():
     return datetime.now(timezone.utc) + timedelta(hours=8)
 
 
+# 资源池上下架状态（与 is_delete 语义严格分离）：
+#   active     —— 在售：可绑定到租户、可设为默认
+#   off_shelf  —— 已下架：禁止新增绑定与设为默认，但已绑定的存量照常可用
+# 存量行该列可能为 NULL，一律按 active 处理（读取处用 COALESCE 兜底），
+# 因此判定下架必须是 status == "off_shelf"，不能写 status != "active"。
+STATUS_ACTIVE = "active"
+STATUS_OFF_SHELF = "off_shelf"
+
+
+def shelf_status():
+    """四类资源表共用的 status 列定义（列对象需每表独立创建，故用工厂函数）。"""
+    return Column(String(20), index=True, default=STATUS_ACTIVE,
+                  comment="上下架状态：active=在售 | off_shelf=已下架（NULL 视为 active）")
+
+
+
 
 class User(Base):
     """后台管理员账号表。
@@ -91,6 +107,7 @@ class TTSFactories(Base):
     additional_param = Column(JSON, comment="大模型参数", default="{}")
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+    status = shelf_status()
     
 
 class LLMFactories(Base):
@@ -108,6 +125,7 @@ class LLMFactories(Base):
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+    status = shelf_status()
 
 
 class ASRFactories(Base):
@@ -125,6 +143,7 @@ class ASRFactories(Base):
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+    status = shelf_status()
     
 
 class FigureFactories(Base):
@@ -198,3 +217,4 @@ class DigitalHumanChatTemplate(Base):
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+    status = shelf_status()

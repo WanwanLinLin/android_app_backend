@@ -8,6 +8,7 @@ from .tables.industrial_park import (ASRFactories, Tenant, SourceList, LLMFactor
                                      TTSFactories, DigitalHumanChatTemplate, User)
 from .tables.sqlcli import AsyncSessionLocal
 from utils.common.enumTaskType import SourceTypeEnum
+from .shelf_orm import is_off_shelf
 from utils.getLogs import LOG
 
 
@@ -260,6 +261,9 @@ async def bind_source(tenant_id: int, type: str, reference_id: int):
 
     同一 (type, reference_id, tenant_id) 已存在时直接返回成功（幂等），
     避免重复绑定产生脏数据。
+
+    已下架（status=off_shelf）的资源禁止新增绑定：下架的语义就是关闭增量入口，
+    存量绑定不受影响（见 mybatisPlus/shelf_orm.py）。
     """
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -267,6 +271,8 @@ async def bind_source(tenant_id: int, type: str, reference_id: int):
                 select(Tenant).filter_by(id=tenant_id, is_delete=False))
             if not tenant:
                 return GeneticResponse(code=400, msg="租户不存在")
+            if await is_off_shelf(type, reference_id):
+                return GeneticResponse(code=400, msg="该资源已下架，不可绑定")
             exist = await session.scalar(
                 select(SourceList).filter_by(
                     tenant_id=tenant_id, type=type, reference_id=reference_id))
@@ -320,6 +326,10 @@ async def set_source_default(tenant_id: int, type: str, reference_id: int):
             target = next((r for r in rows if r.reference_id == reference_id), None)
             if not target:
                 return GeneticResponse(code=400, msg="绑定关系不存在")
+            # 已下架资源不可新设为默认：默认资源是终端不下发 source_config 时的兜底，
+            # 不应指向一个已停止供给的资源（存量默认不在此列，管理员可继续手动改）。
+            if await is_off_shelf(type, reference_id):
+                return GeneticResponse(code=400, msg="该资源已下架，不可设为默认")
             for r in rows:
                 r.is_default = (r.id == target.id)
                 session.add(r)

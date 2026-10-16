@@ -8,6 +8,7 @@ from typing import Union, List, Dict
 from datetime import datetime
 from datetime import datetime, timedelta
 from .tables.industrial_park import (DigitalHumanChatTemplate)
+from .shelf_orm import binding_guard
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -18,12 +19,18 @@ class _GetChatTemplateList(BaseModel):
     id: int
     module_path: str
     desc: str
+    status: Union[str, None] = None
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
     
     class Config:
         from_attributes = True
         protected_namespaces = ()
+
+    @field_validator("status", mode="before")
+    def norm_status(cls, v):
+        # 迁移前的存量行 status 为 NULL，语义等同在售
+        return v or "active"
         
     @field_validator("create_time")
     def get_create_time(cls, v, values):
@@ -85,13 +92,16 @@ async def update_one_chat_template(id: int, **kwargs):
 
 
 async def delete_one_chat_template(id: int):
-    """软删除对话模板。"""
+    """软删除对话模板。仍有租户绑定时拒绝，理由同 tts_orm.delete_one_voice。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             template = await session.scalar(
                 select(DigitalHumanChatTemplate).filter_by(id=id))
             if not template:
                 return GeneticResponse(code=400, msg="data not exist")
+            denied = await binding_guard("CHATTEMPLATE", id, session)
+            if denied:
+                return denied
             template.is_delete = True
             session.add(template)
             return GeneticResponse()

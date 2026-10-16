@@ -1,10 +1,11 @@
 <template>
   <div class="login-wrap">
-    <!-- 背景装饰 -->
+    <!-- 背景层：图片 + 柔化 + 浅色纱幕，均在面板之下 -->
+    <div class="bg-layer" :style="{ backgroundImage: `url(${bgUrl})` }"></div>
+    <div class="bg-veil"></div>
+    <!-- 背景装饰（叠在背景图之上、面板之下） -->
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
-    <div class="blob blob-3"></div>
-    <div class="grid-overlay"></div>
 
     <div class="login-panel fade-up">
       <div class="login-left">
@@ -42,6 +43,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Cpu } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import bgUrl from '@/assets/bg/grass.jpg'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -71,44 +73,51 @@ async function onSubmit() {
 <style scoped>
 .login-wrap {
   height: 100vh; display: flex; align-items: center; justify-content: center;
-  background:
-    radial-gradient(900px 500px at 10% 0%, rgba(99, 102, 241, 0.16), transparent 60%),
-    radial-gradient(800px 500px at 95% 100%, rgba(6, 182, 212, 0.16), transparent 55%),
-    #f4f6fc;
+  background-color: #eef2f8;
   overflow: hidden; position: relative;
 }
 
-/* 漂浮光斑 */
-.blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.5; }
+/* 背景图：原图 800x800，宽屏下 cover 会被放大，轻微模糊 + 放大可掩盖插值发虚 */
+.bg-layer {
+  position: absolute; inset: -2%;
+  background-size: cover; background-position: center 38%; background-repeat: no-repeat;
+  filter: saturate(1.05) brightness(1.02) blur(0.6px);
+  transform: scale(1.04);
+  z-index: 0;
+}
+/* 纱幕：压住画面亮度，保证白色面板与表单文字的可读性 */
+.bg-veil {
+  position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(135deg,
+      rgba(244, 246, 252, 0.5) 0%,
+      rgba(244, 246, 252, 0.28) 45%,
+      rgba(199, 210, 254, 0.36) 100%);
+}
+
+/* 漂浮光斑（弱化，避免与背景图抢注意力） */
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.3; z-index: 0; }
 .blob-1 { width: 420px; height: 420px; left: -120px; top: -120px; background: #c7d2fe; animation: drift 14s ease-in-out infinite alternate; }
 .blob-2 { width: 360px; height: 360px; right: -100px; bottom: -100px; background: #a5f3fc; animation: drift 18s ease-in-out infinite alternate-reverse; }
-.blob-3 { width: 240px; height: 240px; left: 55%; top: 8%; background: #ddd6fe; animation: drift 11s ease-in-out infinite alternate; }
 @keyframes drift {
   from { transform: translate(0, 0) scale(1); }
   to   { transform: translate(50px, 40px) scale(1.12); }
-}
-.grid-overlay {
-  position: absolute; inset: 0;
-  background-image: linear-gradient(rgba(99, 102, 241, 0.045) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(99, 102, 241, 0.045) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(700px 500px at 50% 50%, black, transparent 90%);
 }
 
 /* 面板 */
 .login-panel {
   position: relative; z-index: 1;
   display: flex; width: 780px; max-width: 94vw; min-height: 440px;
-  background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(14px);
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  /* 背景图偏亮，面板不透明度提高以保证表单可读；blur 仍保留毛玻璃质感 */
+  background: rgba(255, 255, 255, 0.94); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
   border-radius: 22px; overflow: hidden;
-  box-shadow: 0 24px 70px rgba(67, 56, 202, 0.16);
+  box-shadow: 0 24px 70px rgba(31, 41, 82, 0.22);
 }
 
 /* 左侧品牌区 */
 .login-left {
   flex: 1; padding: 44px 38px; color: #fff; position: relative;
-  background: linear-gradient(150deg, #4f46e5 0%, #7c3aed 55%, #0891b2 100%);
+  background: linear-gradient(150deg, #4f46e5 0%, #3b82a6 52%, #4d9e6a 100%);
   display: flex; flex-direction: column;
 }
 .login-left::after {

@@ -54,7 +54,10 @@
           </div>
           <div class="default-body">
             <template v-if="defaultOf(t.value)">
-              <div class="default-main">{{ defaultSummary(t.value) }}</div>
+              <div class="default-main">
+                {{ defaultSummary(t.value) }}
+                <el-tag v-if="defaultOffShelf(t.value)" type="warning" size="small" effect="light">已下架</el-tag>
+              </div>
               <div class="default-sub mono">#{{ defaultOf(t.value).reference_id }}</div>
             </template>
             <div v-else class="default-none">未设置默认</div>
@@ -72,7 +75,13 @@
         </el-select>
         <el-select v-model="bindRefId" filterable placeholder="搜索并选择资源" style="flex: 1; min-width: 260px">
           <el-option v-for="opt in pool[bindType] || []" :key="opt.id"
-                     :label="`#${opt.id} ${opt.desc || ''} (${opt.type || ''})`" :value="opt.id" />
+                     :label="`#${opt.id} ${opt.desc || ''} (${opt.type || ''})`" :value="opt.id"
+                     :disabled="opt.status === 'off_shelf'">
+            <span :style="opt.status === 'off_shelf' ? 'color:#c0c6d9' : ''">
+              {{ `#${opt.id} ${opt.desc || ''} (${opt.type || ''})` }}
+              <el-tag v-if="opt.status === 'off_shelf'" type="warning" size="small" effect="light" style="margin-left:6px">已下架</el-tag>
+            </span>
+          </el-option>
         </el-select>
         <el-button type="primary" :loading="binding" @click="doBind">
           <el-icon style="margin-right:4px"><Plus /></el-icon>绑定
@@ -101,7 +110,12 @@
           <template #default="{ row }"><span class="mono">#{{ row.reference_id }}</span></template>
         </el-table-column>
         <el-table-column label="资源摘要" show-overflow-tooltip>
-          <template #default="{ row }">{{ summary(row) }}</template>
+          <template #default="{ row }">
+            {{ summary(row) }}
+            <el-tooltip v-if="isOffShelf(row)" content="该资源已停止供给，建议更换绑定；现有会话仍可使用" placement="top">
+              <el-tag type="warning" size="small" effect="light" style="margin-left:6px">已下架</el-tag>
+            </el-tooltip>
+          </template>
         </el-table-column>
         <el-table-column label="默认" width="100">
           <template #default="{ row }">
@@ -210,8 +224,18 @@ async function refreshAll() {
   await Promise.all([loadTenant(), loadBound()])
 }
 
+function poolItem(row) {
+  return (pool[row.type] || []).find((x) => x.id === row.reference_id)
+}
+
+// 已下架资源：仍可照常使用（存量不受影响），但要提示管理员尽快更换
+function isOffShelf(row) {
+  const opt = poolItem(row)
+  return !!opt && opt.status === 'off_shelf'
+}
+
 function summary(row) {
-  const opt = (pool[row.type] || []).find((x) => x.id === row.reference_id)
+  const opt = poolItem(row)
   if (!opt) return `#${row.reference_id}（未在资源池）`
   if (row.type === 'CHATTEMPLATE') return `#${opt.id} ${opt.desc || ''} ${opt.module_path || ''}`.trim()
   return `#${opt.id} ${opt.desc || ''} ${opt.tag || opt.voice || ''}`.trim()
@@ -225,6 +249,13 @@ function defaultSummary(type) {
   if (!opt) return '资源已不在资源池（可能已删除）'
   if (type === 'CHATTEMPLATE') return opt.desc || opt.module_path || '（无描述）'
   return opt.desc || opt.tag || opt.voice || opt.type || '（无描述）'
+}
+
+function defaultOffShelf(type) {
+  const d = defaultOf(type)
+  if (!d) return false
+  const opt = (pool[type] || []).find((x) => x.id === d.reference_id)
+  return !!opt && opt.status === 'off_shelf'
 }
 
 async function doBind() {

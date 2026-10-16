@@ -15,6 +15,8 @@ from fastapi import APIRouter, status, WebSocket, WebSocketDisconnect, Depends, 
 from pydub import AudioSegment
 from mybatisPlus.agent_orm import (add_one_agent, get_one_agent, get_agent_list,
                                    update_one_agent, delete_one_agent)
+from mybatisPlus.shelf_orm import off_shelf_preview, set_shelf_status
+from mybatisPlus.tables.industrial_park import STATUS_ACTIVE, STATUS_OFF_SHELF
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
@@ -54,3 +56,21 @@ async def _update_agent(id: int, info: schema.UpdateLLModel,
 @router.post("/v1/agent/delete/{id}", summary="删除大模型（软删除）", tags=["通用接口"])
 async def _delete_agent(id: int, admin: dict = Depends(require_admin)):
     return await delete_one_agent(id)
+
+
+# ===================== 上下架（仅管理员），语义同 tts/views.py =====================
+
+@router.get("/v1/agent/offShelfPreview/{id}", summary="下架影响面预览（受影响租户）",
+            tags=["通用接口"])
+async def _agent_off_shelf_preview(id: int, admin: dict = Depends(require_admin)):
+    return await off_shelf_preview("LLM", id)
+
+
+@router.post("/v1/agent/offShelf/{id}", summary="下架大模型", tags=["通用接口"])
+async def _agent_off_shelf(id: int, admin: dict = Depends(require_admin)):
+    return await set_shelf_status("LLM", id, STATUS_OFF_SHELF)
+
+
+@router.post("/v1/agent/onShelf/{id}", summary="上架大模型", tags=["通用接口"])
+async def _agent_on_shelf(id: int, admin: dict = Depends(require_admin)):
+    return await set_shelf_status("LLM", id, STATUS_ACTIVE)

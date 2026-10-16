@@ -35,12 +35,23 @@
         </el-table-column>
         <el-table-column prop="create_time" label="创建时间" width="170" />
         <el-table-column prop="update_time" label="更新时间" width="170" />
-        <el-table-column label="操作" :width="auth.isAdmin ? 230 : 100" fixed="right">
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.status === 'off_shelf'" type="warning" size="small" effect="light">已下架</el-tag>
+            <el-tag v-else type="success" size="small" effect="light">在售</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" :width="auth.isAdmin ? 300 : 100" fixed="right">
           <template #default="{ row }">
             <el-button size="small" round plain @click="openView(row)">
               <el-icon style="margin-right:3px"><View /></el-icon>查看
             </el-button>
             <el-button v-if="auth.isAdmin" size="small" round plain type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="auth.isAdmin" size="small" round plain
+                       :type="row.status === 'off_shelf' ? 'success' : 'warning'"
+                       @click="onShelfToggle(row)">
+              {{ row.status === 'off_shelf' ? '上架' : '下架' }}
+            </el-button>
             <el-button v-if="auth.isAdmin" size="small" round plain type="danger" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -70,6 +81,39 @@
       </template>
     </el-dialog>
 
+    <!-- 下架影响面预览 -->
+    <el-dialog v-model="shelfVisible" title="下架影响面" width="600px" destroy-on-close append-to-body>
+      <div v-loading="shelfLoading">
+        <div class="shelf-summary">
+          <el-icon><InfoFilled /></el-icon>
+          <span v-if="shelfData.bound_count === 0">该资源当前没有被任何租户绑定，可安全下架。</span>
+          <span v-else>该资源已被 <b>{{ shelfData.bound_count }}</b> 个租户绑定，其中
+            <b :class="{ danger: shelfData.default_count > 0 }">{{ shelfData.default_count }}</b> 个将其设为默认资源。</span>
+        </div>
+        <div v-if="shelfData.warning" class="shelf-warning">
+          <el-icon><WarningFilled /></el-icon>{{ shelfData.warning }}
+        </div>
+        <el-alert v-if="shelfData.bound_count > 0" type="info" :closable="false" show-icon
+                  title="下架只关闭新增绑定与设为默认的入口，已绑定的租户照常可用；删除才会中断存量。"
+                  style="margin-bottom: 12px" />
+        <el-table v-if="shelfData.tenants && shelfData.tenants.length" :data="shelfData.tenants"
+                  size="small" max-height="240" stripe>
+          <el-table-column prop="tenantname" label="租户" />
+          <el-table-column label="默认资源" width="110">
+            <template #default="{ row }">
+              <el-tag v-if="row.is_default" type="danger" size="small">默认</el-tag>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="shelfVisible = false">取消</el-button>
+        <el-button type="warning" :loading="shelfSubmitting"
+                   :disabled="shelfLoading" @click="confirmOffShelf">确认下架</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 查看详情 -->
     <el-dialog v-model="viewVisible" title="资源详情" width="560px" append-to-body>
       <el-descriptions :column="1" border v-loading="viewing">
@@ -84,8 +128,8 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
-import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete } from '@/api'
+import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
+import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete, resourceOffShelfPreview, resourceOffShelf, resourceOnShelf } from '@/api'
 import { RES_FIELDS } from './resFields'
 import { useAuthStore } from '@/stores/auth'
 
@@ -211,7 +255,7 @@ async function submitForm() {
 
 async function onDelete(row) {
   try {
-    await ElMessageBox.confirm(`确认删除 ID=${row.id} 的${meta.value.label}？（软删除）`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除 ID=${row.id} 的${meta.value.label}？仍有租户绑定会被拒绝（停用请改用下架）`, '提示', { type: 'warning' })
   } catch (e) { return }
   try {
     await resourceDelete(props.resType, row.id)
@@ -219,6 +263,54 @@ async function onDelete(row) {
     await load()
   } catch (e) {
     ElMessage.error(e.message)
+  }
+}
+
+// ===================== 上下架 =====================
+const shelfVisible = ref(false)
+const shelfLoading = ref(false)
+const shelfSubmitting = ref(false)
+const shelfData = ref({})
+const shelfRow = ref(null)
+
+async function onShelfToggle(row) {
+  if (row.status === 'off_shelf') {
+    // 上架无条件安全，直接执行
+    try {
+      await resourceOnShelf(props.resType, row.id)
+      ElMessage.success('已上架')
+      await load()
+    } catch (e) {
+      ElMessage.error(e.message)
+    }
+    return
+  }
+  // 下架先看影响面，管理员确认后才执行
+  shelfRow.value = row
+  shelfData.value = {}
+  shelfVisible.value = true
+  shelfLoading.value = true
+  try {
+    shelfData.value = await resourceOffShelfPreview(props.resType, row.id)
+  } catch (e) {
+    ElMessage.error(e.message)
+    shelfVisible.value = false
+  } finally {
+    shelfLoading.value = false
+  }
+}
+
+async function confirmOffShelf() {
+  shelfSubmitting.value = true
+  try {
+    await resourceOffShelf(props.resType, shelfRow.value.id)
+    ElMessage.success('已下架，存量绑定不受影响')
+    shelfVisible.value = false
+    await load()
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    shelfSubmitting.value = false
   }
 }
 
@@ -267,4 +359,17 @@ watch(() => props.resType, () => {
 }
 .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; color: #6366f1; }
 .empty { padding: 30px 0; text-align: center; color: #98a0b3; font-size: 13px; }
+.shelf-summary {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 13px; color: #3b3f52; margin-bottom: 12px; line-height: 1.6;
+}
+.shelf-summary .el-icon { color: #6366f1; margin-top: 2px; }
+.shelf-summary b { color: #6366f1; }
+.shelf-summary b.danger { color: #f56c6c; }
+.shelf-warning {
+  display: flex; align-items: flex-start; gap: 6px;
+  background: rgba(245, 158, 11, 0.08); border-left: 3px solid #f59e0b;
+  color: #92640a; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
+}
+.muted { color: #c0c6d9; }
 </style>
