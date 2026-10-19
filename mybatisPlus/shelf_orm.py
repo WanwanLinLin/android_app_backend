@@ -40,6 +40,16 @@ def _model(type: str):
     return RESOURCE_MODELS.get(type)
 
 
+def active_only(model):
+    """列表过滤条件：排除已下架资源（供非 admin 角色的资源列表使用）。
+
+    存量行 status 可能为 NULL，语义等同 active，故用 coalesce 兜底后再判
+    != off_shelf，不能直接写 status != 'off_shelf'（NULL 参与比较恒为 NULL，
+    会把在售的历史行误杀）。
+    """
+    return func.coalesce(model.status, STATUS_ACTIVE) != STATUS_OFF_SHELF
+
+
 async def get_shelf_status(type: str, reference_id: int):
     """取单条资源的上下架状态，NULL 归一为 active。资源不存在返回 None。"""
     model = _model(type)

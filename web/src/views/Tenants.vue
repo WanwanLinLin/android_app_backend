@@ -63,7 +63,10 @@
           <el-input v-model="form.tenantname" :disabled="!!editing" placeholder="终端业务身份标识，唯一" />
         </el-form-item>
         <el-form-item label="所属管理员">
-          <el-select v-model="form.user_id" clearable filterable placeholder="选择归属的后台管理员（可留空）" style="width:100%">
+          <!-- 新增：归属固定为当前登录账号（后端同样强制兜底），不显示下拉 -->
+          <span v-if="!editing" class="owner-text">{{ adminName(currentAdminId) || auth.username }}</span>
+          <!-- 编辑：仅超管可改归属（后端对非 admin 会忽略 user_id） -->
+          <el-select v-else v-model="form.user_id" clearable filterable placeholder="选择归属的后台管理员（可留空）" style="width:100%">
             <el-option v-for="u in admins" :key="u.id"
                        :label="`${u.username}${u.nickname ? ' · ' + u.nickname : ''}`" :value="u.id" />
           </el-select>
@@ -86,12 +89,20 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Plus, Search, Files, Box, OfficeBuilding } from '@element-plus/icons-vue'
 import { tenantList, tenantAdd, tenantUpdate, tenantDelete, userList } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const auth = useAuthStore()
 const rows = ref([])
 const loading = ref(false)
 const keyword = ref('')
 const admins = ref([])
+
+// 当前登录账号在 User 表里的 id：新增租户时归属到它（后端亦强制兜底）
+const currentAdminId = computed(() => {
+  const u = admins.value.find((x) => x.username === auth.username)
+  return u ? u.id : null
+})
 
 const formVisible = ref(false)
 const formRef = ref()
@@ -153,7 +164,7 @@ async function submitForm() {
       await tenantUpdate(editing.value.id, { user_id: form.user_id, nickname: form.nickname, job: form.job, phone_number: form.phone_number })
       ElMessage.success('更新成功')
     } else {
-      await tenantAdd({ tenantname: form.tenantname, user_id: form.user_id, nickname: form.nickname, job: form.job, phone_number: form.phone_number })
+      await tenantAdd({ tenantname: form.tenantname, user_id: currentAdminId.value, nickname: form.nickname, job: form.job, phone_number: form.phone_number })
       ElMessage.success('创建成功')
     }
     formVisible.value = false
@@ -193,5 +204,6 @@ onMounted(load)
 .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; color: #6366f1; }
 .tenant-name { font-weight: 600; color: #23283b; }
 .empty-dash { color: #b3bacc; font-size: 12px; }
+.owner-text { font-weight: 600; color: #3b3f52; }
 .empty { padding: 30px 0; text-align: center; color: #98a0b3; font-size: 13px; }
 </style>

@@ -301,13 +301,55 @@ async def unbind_source(tenant_id: int, type: str, reference_id: int):
 
 
 async def list_bound_sources(tenant_id: int):
-    """列出租户已绑定的资源（SourceList 行，含未绑定过滤）。"""
+    """列出租户已绑定的资源，并带上资源描述与上下架状态。
+
+    资源信息直接 join 四张资源表取回，不再依赖前端拿资源池二次匹配——因为
+    非 admin 的资源池列表已过滤掉下架资源，若这里只返 reference_id，
+    「已绑定但被下架」的存量资源会显示成"未在资源池"且丢失下架提示。
+    资源行已被物理删除（正常不会，删除是软删）时字段回落 None。
+    status 为 NULL 归一为 active。
+    """
     async with AsyncSessionLocal() as session:
         rows = await session.scalars(
             select(SourceList).filter_by(tenant_id=tenant_id).where(
                 or_(SourceList.is_delete.is_(None), SourceList.is_delete.is_(False))))
-        return [{"id": s.id, "type": s.type, "reference_id": s.reference_id,
-                 "is_default": bool(s.is_default)} for s in rows]
+        rows = list(rows)
+
+        # 按类型分组收集 reference_id，逐表批量取回描述与状态，避免逐行查询
+        ids_by_type = {}
+        for s in rows:
+            ids_by_type.setdefault(s.type, set()).add(s.reference_id)
+
+        # type -> {rid: {"desc":..., "tag":..., "voice":..., "module_path":..., "status":...}}
+        info = {}
+        model_fields = {
+            SourceTypeEnum.TTS.value: (TTSFactories, ("desc", "tag", "voice")),
+            SourceTypeEnum.ASR.value: (ASRFactories, ("desc",)),
+            SourceTypeEnum.LLM.value: (LLMFactories, ("desc",)),
+            SourceTypeEnum.CHATTEMPLATE.value: (DigitalHumanChatTemplate, ("desc", "module_path")),
+        }
+        for stype, rids in ids_by_type.items():
+            entry = model_fields.get(stype)
+            if not entry or not rids:
+                continue
+            model, fields = entry
+            found = await session.scalars(select(model).where(model.id.in_(rids)))
+            m = {}
+            for obj in found:
+                d = {f: getattr(obj, f, None) for f in fields}
+                d["status"] = obj.status or "active"
+                m[obj.id] = d
+            info[stype] = m
+
+        result = []
+        for s in rows:
+            item = info.get(s.type, {}).get(s.reference_id, {})
+            result.append({"id": s.id, "type": s.type, "reference_id": s.reference_id,
+                           "is_default": bool(s.is_default),
+                           "desc": item.get("desc"), "tag": item.get("tag"),
+                           "voice": item.get("voice"), "module_path": item.get("module_path"),
+                           "status": item.get("status")})
+        return result
 
 
 async def set_source_default(tenant_id: int, type: str, reference_id: int):

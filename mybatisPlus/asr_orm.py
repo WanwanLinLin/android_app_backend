@@ -8,7 +8,7 @@ from typing import Union, List, Dict
 from datetime import datetime
 from datetime import datetime, timedelta
 from .tables.industrial_park import (ASRFactories)
-from .shelf_orm import binding_guard
+from .shelf_orm import binding_guard, active_only
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
@@ -53,15 +53,18 @@ class _GetASRList(BaseModel):
         return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
 
 
-async def get_asr_list():
+async def get_asr_list(only_active: bool = False):
+    """ASR 列表。only_active=True 时过滤掉已下架资源（非 admin 用），admin 看全量。"""
     results = []
     total_len = 0
     async with AsyncSessionLocal() as session:
         async with session.begin():  # 开启事务
             # 存量数据 is_delete 可能为 NULL，NULL 与 False 均视为有效
-            voices = await session.scalars(
-                select(ASRFactories).where(
-                    or_(ASRFactories.is_delete.is_(None), ASRFactories.is_delete.is_(False))))
+            stmt = select(ASRFactories).where(
+                or_(ASRFactories.is_delete.is_(None), ASRFactories.is_delete.is_(False)))
+            if only_active:
+                stmt = stmt.where(active_only(ASRFactories))
+            voices = await session.scalars(stmt)
             # total_len = len(voices.all())
             for i in voices.all():
                 total_len += 1

@@ -228,32 +228,39 @@ function poolItem(row) {
   return (pool[row.type] || []).find((x) => x.id === row.reference_id)
 }
 
-// 已下架资源：仍可照常使用（存量不受影响），但要提示管理员尽快更换
+// 已绑定资源的展示信息优先取后端随绑定一起返回的 desc/status（已下架资源
+// 不在非 admin 的资源池列表里，不能靠 pool join）；pool 仅作兜底。
 function isOffShelf(row) {
+  if (row.status) return row.status === 'off_shelf'
   const opt = poolItem(row)
   return !!opt && opt.status === 'off_shelf'
 }
 
 function summary(row) {
-  const opt = poolItem(row)
-  if (!opt) return `#${row.reference_id}（未在资源池）`
-  if (row.type === 'CHATTEMPLATE') return `#${opt.id} ${opt.desc || ''} ${opt.module_path || ''}`.trim()
-  return `#${opt.id} ${opt.desc || ''} ${opt.tag || opt.voice || ''}`.trim()
+  const opt = poolItem(row) || {}
+  const desc = row.desc ?? opt.desc
+  const extra = row.tag ?? opt.tag ?? row.voice ?? opt.voice ?? ''
+  if (row.type === 'CHATTEMPLATE') {
+    const mp = row.module_path ?? opt.module_path
+    return `#${row.reference_id} ${[desc, mp].filter(Boolean).join(' ')}`.trim()
+  }
+  if (desc === undefined && !opt.desc) return `#${row.reference_id}`
+  return `#${row.reference_id} ${[desc, extra].filter(Boolean).join(' ')}`.trim()
 }
 
 // 默认资源卡：主行放可读描述，资源 ID 单独一行（mono 样式），避免长文本挤压
 function defaultSummary(type) {
   const d = defaultOf(type)
   if (!d) return ''
-  const opt = (pool[type] || []).find((x) => x.id === d.reference_id)
-  if (!opt) return '资源已不在资源池（可能已删除）'
-  if (type === 'CHATTEMPLATE') return opt.desc || opt.module_path || '（无描述）'
-  return opt.desc || opt.tag || opt.voice || opt.type || '（无描述）'
+  const opt = (pool[type] || []).find((x) => x.id === d.reference_id) || {}
+  if (type === 'CHATTEMPLATE') return d.desc || opt.desc || d.module_path || opt.module_path || '（无描述）'
+  return d.desc || opt.desc || d.tag || opt.tag || d.voice || opt.voice || '（无描述）'
 }
 
 function defaultOffShelf(type) {
   const d = defaultOf(type)
   if (!d) return false
+  if (d.status) return d.status === 'off_shelf'
   const opt = (pool[type] || []).find((x) => x.id === d.reference_id)
   return !!opt && opt.status === 'off_shelf'
 }

@@ -20,17 +20,17 @@ from mybatisPlus.tables.industrial_park import STATUS_ACTIVE, STATUS_OFF_SHELF
 from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
-from utils.admin_auth import require_admin
+from utils.admin_auth import require_admin, current_admin, is_admin
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
 
 # 资源池写操作（新增/更新/删除）一律仅 role=admin 可用，理由同 tts/views.py。
 
-@router.post("/v1/asr/list", summary="获取语音识别模型列表", tags=["通用接口"],
-             dependencies=[Depends(validate_accesskey)])
-async def _list_asr():
-    return GeneticResponse(data= await get_asr_list())
+@router.post("/v1/asr/list", summary="获取语音识别模型列表", tags=["通用接口"])
+async def _list_asr(admin: dict = Depends(current_admin)):
+    """admin 看全量（含已下架，便于重新上架）；普通用户只看在售资源。"""
+    return GeneticResponse(data=await get_asr_list(only_active=not is_admin(admin)))
 
 
 @router.post("/v1/asr/add", summary="添加语音识别模型", tags=["通用接口"])

@@ -91,10 +91,17 @@ async def _me(admin: dict = Depends(current_admin)):
     return GeneticResponse(data=admin)
 
 
-@router.post("/v1/tenant/add", summary="创建租户", tags=["租户管理"],
-             dependencies=[Depends(validate_accesskey)])
-async def _add_tenant(info: schema.AddTenantModel):
-    return await create_tenant(**info.model_dump(exclude_none=True))
+@router.post("/v1/tenant/add", summary="创建租户", tags=["租户管理"])
+async def _add_tenant(info: schema.AddTenantModel, admin: dict = Depends(current_admin)):
+    """创建租户，归属默认当前登录账号（Tenant.user_id = admin.id）。
+
+    - 非 admin 角色：前端传的 user_id 一律忽略，强制归属自己；
+    - admin 角色：可显式指定其他管理员（超管代建场景），不传也默认归自己。
+    """
+    payload = info.model_dump(exclude_none=True)
+    if payload.get("user_id") is None or not is_admin(admin):
+        payload["user_id"] = admin["id"]
+    return await create_tenant(**payload)
 
 
 @router.get("/v1/tenant/list", summary="租户列表", tags=["租户管理"])
