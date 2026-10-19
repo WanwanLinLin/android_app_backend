@@ -39,10 +39,12 @@ async def _login(info: schema.UserLogin):
     """后台管理员登录，签发 JWT；租户管理接口需携带该 token。
 
     兼容两种口令提交方式，二者任一通过即放行：
-      1. 直接提交与 User.hashed_password 一致的字符串（原有 == 比较，
-         已在跑的终端按此方式工作，行为保持不变）；
-      2. 提交明文密码，由 bcrypt.checkpw 与 bcrypt 哈希比对
-         （Web 管理后台走此通路，否则明文永远无法登录）。
+      1. 提交固定盐 BCrypt 哈希（$2a$12$KpX5/PA4FXJkZNsnuYk41. 为盐），
+         与 User.hashed_password == 比较。安卓端与 Web 管理后台（自
+         2026-10-19 起，web/src/utils/password.js）均走此通路，
+         明文不出网络。建号必须用同盐（scripts/create_user.py）。
+      2. 提交明文密码，由 bcrypt.checkpw 与存储哈希比对（历史兼容
+         通路，保留给未升级的旧终端）。
     """
     hashed_password = await get_password(info.username)
     if not hashed_password: return GeneticResponse(code=401, msg="Not authenticated")

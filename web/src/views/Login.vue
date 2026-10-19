@@ -43,6 +43,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Cpu } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { hashPassword } from '@/utils/password'
 import bgUrl from '@/assets/bg/grass.jpg'
 
 const auth = useAuthStore()
@@ -59,7 +60,11 @@ async function onSubmit() {
   await formRef.value.validate()
   loading.value = true
   try {
-    await auth.login({ username: form.username, password: form.password })
+    // 与安卓端一致：用户名 trim，口令用固定盐 BCrypt 后再提交，明文不出网络
+    await auth.login({
+      username: (form.username || '').trim(),
+      password: hashPassword(form.password)
+    })
     ElMessage.success('登录成功')
     router.push({ name: 'tenants' })
   } catch (e) {

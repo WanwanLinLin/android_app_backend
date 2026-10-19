@@ -16,3 +16,4 @@ skills/*
 node_modules
 dist/*
 backup/*
+my_tasks/*

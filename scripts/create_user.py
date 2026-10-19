@@ -2,15 +2,24 @@
 """创建后台管理员账号（User 表）。
 
 用法（在项目根目录或任意目录均可）：
-    python3 scripts/create_user.py <username> [选项]
+    python3 scripts/create_user.py --username <name> [选项]
+
+口令哈希必须使用安卓端内嵌的**固定盐**（见 my_tasks/android-login-api.md）：
+安卓登录时先对明文做 BCrypt(固定盐) 再把 60 位哈希提交到 /v1/user/login，
+服务端登录的第一条通路是「提交串 == User.hashed_password」精确比对。
+若建号时用 gensalt 随机盐，存储哈希与安卓算出的哈希永远不相等，
+第二条 checkpw 通路也会把安卓的哈希串当明文再哈希而对不上——账号在
+安卓端将永远提示密码错误。固定盐哈希同时兼容 Web 后台提交明文的
+checkpw 通路，两端通用。
 
 口令来源（三选一，优先级从高到低）：
     --password '明文'          命令行直传（会留在 shell 历史，仅脚本化场景用）
     --password-env VAR         从环境变量读取（推荐在 CI/自动化里用）
     交互输入                    都不传时提示输入并二次确认（推荐人工使用）
 
-口令以 bcrypt 哈希存入 User.hashed_password，与登录接口
-（modules/user/views.py 的 bcrypt.checkpw 通路）完全兼容。
+口令以固定盐 BCrypt 哈希存入 User.hashed_password，同时兼容登录接口的
+两条通路（modules/user/views.py）：安卓端提交固定盐哈希的 == 比对、
+Web 后台提交明文的 bcrypt.checkpw 比对。
 
 选项：
     --role admin|operator      角色，默认 admin
@@ -39,6 +48,16 @@ from sqlalchemy import or_, select
 from mybatisPlus.tables.industrial_park import User
 from mybatisPlus.tables.sqlcli import AsyncSessionLocal, async_engine
 
+# 安卓客户端 LoginScreen.kt 内嵌的固定盐（cost=12，2a 修订版）。
+# 建号哈希必须与此一致，安卓端登录才能通过「提交串 == 存储哈希」比对。
+ANDROID_SALT = b"$2a$12$KpX5/PA4FXJkZNsnuYk41."
+
+
+def hash_password(plain: str) -> str:
+    """用安卓固定盐做 BCrypt。同一明文确定性输出，且与 Web 后台
+    提交明文 + bcrypt.checkpw 的通路兼容（checkpw 从存储哈希自带盐校验）。"""
+    return bcrypt.hashpw(plain.encode("utf-8"), ANDROID_SALT).decode("utf-8")
+
 
 def resolve_password(args) -> str:
     if args.password:
@@ -62,7 +81,7 @@ def resolve_password(args) -> str:
 
 async def create_user(args) -> int:
     plain = resolve_password(args)
-    hashed = bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+    hashed = hash_password(plain)
 
     async with AsyncSessionLocal() as session:
         async with session.begin():
