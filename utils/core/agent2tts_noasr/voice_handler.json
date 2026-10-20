@@ -1,0 +1,178 @@
+{
+  "$schema_note": "以客户端（Android 终端）视角整理的 agent2tts_noasr 对话模板 WebSocket 数据格式说明。上行 = 客户端发送给服务端，下行 = 服务端推送给客户端。",
+  "template_summary": {
+    "module_path": "utils.core.agent2tts_noasr.voice_handler",
+    "description": "客户端 ASR 对话模板：语音识别由客户端本地完成，服务端不做 ASR。客户端上行识别完成的整句文本（不是 chunk），服务端直接送 LLM 生成并按标点切句 TTS。除 ASR 环节外，其余链路与 utils.core.webrtc_aec3.voice_handler 模板一致。",
+    "diff_vs_webrtc_aec3": [
+      "上行不再有麦克风 Opus 音频（二进制帧即使上送也被服务端忽略）",
+      "新增上行文本事件 transcription（完整整句识别结果），服务端收到后直接投递 LLM 队列",
+      "服务端不做 VAD/AEC/ASR：收到整句即视为一句话结束（等同原模板 VAD 判尾的 stop_listening 语义）",
+      "服务端 ASR 引擎在本模板下不会建连（asr_process_monitor 为空转实现）"
+    ]
+  },
+  "protocol": {
+    "transport": "WebSocket",
+    "endpoint": "/v1/stream/recognition",
+    "query_params": {
+      "uid": "终端业务身份标识，即 Tenant.tenantname",
+      "token": "鉴权令牌，服务端 OnewayEncryption().verify_token 校验",
+      "timeStamp": "与 token 配对的时间戳"
+    },
+    "auth_failure_behavior": "token 校验失败抛 AccessKeyAuthError，连接终止"
+  },
+  "handshake": {
+    "description": "连接建立后（accept 成功），客户端必须先发一条 JSON 配置消息（prompt），服务端据此初始化并回会话事件",
+    "client_first_message": {
+      "direction": "uplink",
+      "frame_type": "text",
+      "example": {
+        "prompt": "noasr",
+        "source_config": {
+          "model_id": 1,
+          "tts_id": 2,
+          "asr_id": 3
+        }
+      },
+      "fields": {
+        "prompt": "可选，对话模式标记，本模板建议传 'noasr'（不依赖服务端音频链路）",
+        "vad_max_thre / vad_min_thre / silence_threshold_ms": "本模板不使用（服务端无 VAD），传了也无效",
+        "source_config": "可选（可为 null 或部分字段），缺项由服务端按租户 SourceList 默认资源补齐；asr_id 在本模板下不参与运行时识别"
+      }
+    },
+    "server_ack": {
+      "direction": "downlink",
+      "frame_type": "text",
+      "type": "session_create",
+      "example": {
+        "type": "session_create",
+        "session_id": "550e8400-e29b-41d4-a716-446655440000"
+      },
+      "fields": {
+        "session_id": "服务端生成的会话 UUID，客户端应留存用于对账/重连标识"
+      }
+    }
+  },
+  "uplink": {
+    "transcription_result": {
+      "description": "核心上行事件：客户端本地 ASR 识别完成的整句结果（一句话最终版，不是流式 chunk）",
+      "frame_type": "text",
+      "type": "transcription",
+      "example": {
+        "type": "transcription",
+        "text": "今天天气怎么样",
+        "language": "Chinese"
+      },
+      "fields": {
+        "text": "string，整句识别文本；空串服务端只回显不送 LLM",
+        "language": "可选，string，识别语种标识，服务端原样回显"
+      },
+      "server_reaction": [
+        "1. 会话状态置 idle（视为用户说完一句话，与 webrtc_aec3 模板 VAD 判尾等效）",
+        "2. 下行 stop_listening 事件",
+        "3. 下行 transcription 回显（text/language 原样）",
+        "4. text 非空时投递 LLM 队列，触发本轮智能体回复"
+      ]
+    },
+    "wakeup_command": {
+      "description": "唤醒词/主动打断事件：客户端在播报期间需要打断时发送",
+      "frame_type": "text",
+      "type": "wakeup",
+      "example": {
+        "type": "wakeup"
+      },
+      "server_reaction": "服务端置会话状态为 talking，立即下推 interrupt，并丢弃待合成/待发送的 TTS 数据"
+    },
+    "binary_audio": {
+      "description": "本模板不做服务端识别，二进制音频帧不定义协议；若客户端仍推音频，服务端直接忽略",
+      "frame_type": "binary",
+      "handling": "ignored"
+    }
+  },
+  "downlink": {
+    "binary_audio": {
+      "description": "TTS 播报音频帧（数字人回复语音）",
+      "frame_type": "binary",
+      "encoding": "Opus",
+      "encoder_on_server": "opuslib_next.Encoder(16000, 1, APPLICATION_AUDIO)",
+      "sample_rate": 16000,
+      "channels": 1,
+      "samples_per_frame": 320,
+      "frame_duration_ms": 20,
+      "note": "仅在会话空闲（idle）状态下发送；talking（打断）状态下服务端会丢弃待发音频"
+    },
+    "text_events": {
+      "description": "所有文本帧均为 JSON 对象，以 type 字段区分事件类型。本模板不会出现 chunk（无服务端流式识别）",
+      "events": [
+        {
+          "type": "session_create",
+          "description": "握手成功，会话创建",
+          "example": { "type": "session_create", "session_id": "uuid" },
+          "fields": { "session_id": "string，会话 UUID" }
+        },
+        {
+          "type": "interrupt",
+          "description": "打断事件：服务端要求终端立刻停止当前播放（客户端 wakeup 触发）",
+          "example": { "type": "interrupt" },
+          "fields": {}
+        },
+        {
+          "type": "stop_listening",
+          "description": "服务端确认一句话结束（由客户端整句 transcription 上行触发，保持与原模板事件序列兼容）",
+          "example": { "type": "stop_listening" },
+          "fields": {}
+        },
+        {
+          "type": "transcription",
+          "description": "整句识别结果回显（内容即客户端上行的 text/language）",
+          "example": { "type": "transcription", "text": "今天天气怎么样", "language": "Chinese" },
+          "fields": {
+            "text": "string，识别文本",
+            "language": "string，客户端上行的语种标识，缺省为空串"
+          }
+        },
+        {
+          "type": "analysis",
+          "description": "服务端性能日志（LLM 首 token 耗时等），可用于客户端展示等待状态",
+          "example": { "type": "analysis", "text": "response in 0.83215 seconds" },
+          "fields": { "text": "string，人类可读的性能描述" }
+        },
+        {
+          "type": "assistant",
+          "description": "LLM 流式回复文本片段，按 token/小块连续下发，客户端拼接展示",
+          "example": { "type": "assistant", "text": "今天" },
+          "fields": { "text": "string，回复文本增量片段" }
+        },
+        {
+          "type": "finish",
+          "description": "本轮 LLM 回复结束（正常结束，或被用户打断中途终止时也会下发一次 finish）",
+          "example": { "type": "finish" },
+          "fields": {}
+        },
+        {
+          "type": "tts_done",
+          "description": "本轮回复的全部 TTS 音频已推送完毕（在 LLM 输出完成且所有分句合成发送后下发）",
+          "example": { "type": "tts_done" },
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "typical_round_trip": [
+    "1. 客户端建立 WebSocket（带 uid/token/timeStamp）",
+    "2. 客户端上行 JSON 配置（handshake.client_first_message）",
+    "3. 服务端下行 session_create",
+    "4. 客户端本地录音 + 本地 ASR，识别出完整整句",
+    "5. 客户端上行 transcription（整句结果）",
+    "6. 服务端下行 stop_listening + transcription（回显）",
+    "7. 服务端下行 analysis（可选）+ 若干 assistant 文本片段",
+    "8. 服务端下行 Opus TTS 音频帧（20ms/帧），与文本事件交错，全部发完后下行 finish、tts_done",
+    "9. 若用户在播报中打断：客户端上行 wakeup → 服务端下行 interrupt，本轮 assistant/音频中止"
+  ],
+  "notes": [
+    "会话状态机：idle（待机）/ talking（打断中）。talking 状态下服务端丢弃待合成与待发送的 TTS 数据。",
+    "本模板一句话的边界由客户端判定（本地 ASR 出最终结果即说完），服务端不再做 VAD 静音判尾。",
+    "finish 与 tts_done 语义不同：finish 表示 LLM 文本输出结束；tts_done 表示音频推送全部完成，通常 tts_done 后到达。",
+    "上行整句必须是一次完整的最终识别结果；请勿上行中间 chunk，否则每个 chunk 都会触发一轮 LLM 回复。",
+    "客户端在等待 tts_done 期间可以继续说下一句并上行，但建议等本轮回复播报完或主动 wakeup 打断后再上行，避免语义交叠。"
+  ]
+}

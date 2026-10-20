@@ -27,6 +27,7 @@ class WebsocketServerEvent(Enum):
 # Websocket 客户端事件
 class WebsocketClientEvent(Enum):
     WAKEUP = "wakeup"   # 客户端唤醒词打断事件
+    TRANSCRIPTION = "transcription"   # 客户端语音识别结果（完整整句，非 chunk），用于客户端 ASR 模板
 
 
 class ServerInternalEvent(Enum):
