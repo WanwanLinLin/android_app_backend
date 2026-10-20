@@ -1,13 +1,13 @@
 import json
 import redis
 import requests
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, or_, select
 from pydantic import BaseModel, field_validator
 from typing import Union, List, Dict
 
 from datetime import datetime
 from datetime import datetime, timedelta
-from .tables.industrial_park import (LLMFactories, AgentSessionManagement, Tenant)
+from .tables.industrial_park import (ASRFactories, LLMFactories, TTSFactories, AgentSessionManagement, Tenant)
 from .shelf_orm import binding_guard, active_only
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
@@ -118,6 +118,115 @@ async def delete_one_agent(id: int):
             llm.is_delete = True
             session.add(llm)
             return GeneticResponse()
+
+
+class _GetSessionList(BaseModel):
+    id: int
+    session_id: Union[str, None]
+    tenant_id: Union[int, None]
+    agent_id: Union[int, None]
+    asr_id: Union[int, None]
+    tts_id: Union[int, None]
+    create_time: Union[datetime, str, None]
+    update_time: Union[datetime, str, None]
+    tenantname: Union[str, None] = None
+    llm_desc: Union[str, None] = None
+    asr_desc: Union[str, None] = None
+    tts_desc: Union[str, None] = None
+    rounds: Union[int, None] = None
+
+    class Config:
+        from_attributes = True
+        protected_namespaces = ()
+
+    @field_validator("create_time")
+    def get_create_time(cls, v, values):
+        return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
+
+    @field_validator("update_time")
+    def get_update_time(cls, v, values):
+        return v.strftime("%Y-%m-%d %H:%M:%S") if isinstance(v, datetime) else v
+
+
+class _GetSessionDetail(_GetSessionList):
+    dialogue_history: Union[list, str, None] = None
+
+    @field_validator("dialogue_history", mode="before")
+    def parse_history(cls, v):
+        # JSON 列存量数据可能是字符串形态，统一解析为 list 供前端渲染
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return None
+        return v
+
+
+async def get_session_list(tenant_ids: List[int] = None, start: str = None, end: str = None,
+                           page: int = 1, size: int = 20):
+    """会话记录分页列表（只读审计）。
+
+    tenant_ids：权限收窄——非 admin 传自己名下租户 id 列表；None 表示不限。
+    start/end：create_time 闭区间，格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS。
+    列表不带 dialogue_history 大字段，详情走 get_one_session。
+    join 出租户名与 LLM/ASR/TTS 描述（outer join，资源删除后历史会话仍可展示）。
+    rounds 为 dialogue_history 的 JSON 数组长度（消息条数），NULL 计 0。
+    """
+    async with AsyncSessionLocal() as session:
+        cond = [or_(AgentSessionManagement.is_delete.is_(None),
+                    AgentSessionManagement.is_delete.is_(False))]
+        if tenant_ids is not None:
+            if not tenant_ids:
+                return {"rows": [], "total": 0}
+            cond.append(AgentSessionManagement.tenant_id.in_(tenant_ids))
+        if start:
+            cond.append(AgentSessionManagement.create_time >= start)
+        if end:
+            cond.append(AgentSessionManagement.create_time <= (end if len(end) > 10 else end + " 23:59:59"))
+        total = await session.scalar(
+            select(func.count()).select_from(AgentSessionManagement).where(*cond))
+        stmt = (select(AgentSessionManagement, Tenant.tenantname,
+                       LLMFactories.desc.label("llm_desc"),
+                       ASRFactories.desc.label("asr_desc"),
+                       TTSFactories.desc.label("tts_desc"),
+                       func.coalesce(func.json_length(AgentSessionManagement.dialogue_history), 0).label("rounds"))
+                .outerjoin(Tenant, Tenant.id == AgentSessionManagement.tenant_id)
+                .outerjoin(LLMFactories, LLMFactories.id == AgentSessionManagement.agent_id)
+                .outerjoin(ASRFactories, ASRFactories.id == AgentSessionManagement.asr_id)
+                .outerjoin(TTSFactories, TTSFactories.id == AgentSessionManagement.tts_id)
+                .where(*cond)
+                .order_by(desc(AgentSessionManagement.create_time))
+                .offset(max(page - 1, 0) * size).limit(size))
+        rows = []
+        for sess, tenantname, llm_desc, asr_desc, tts_desc, rounds in (await session.execute(stmt)).all():
+            data = _GetSessionList.model_validate(sess).model_dump()
+            data.update(tenantname=tenantname, llm_desc=llm_desc, asr_desc=asr_desc,
+                        tts_desc=tts_desc, rounds=rounds)
+            rows.append(data)
+        return {"rows": rows, "total": total or 0}
+
+
+async def get_one_session(id: int):
+    """单条会话详情（含 dialogue_history 全文，供聊天气泡渲染）。"""
+    async with AsyncSessionLocal() as session:
+        stmt = (select(AgentSessionManagement, Tenant.tenantname,
+                       LLMFactories.desc.label("llm_desc"),
+                       ASRFactories.desc.label("asr_desc"),
+                       TTSFactories.desc.label("tts_desc"),
+                       func.coalesce(func.json_length(AgentSessionManagement.dialogue_history), 0).label("rounds"))
+                .outerjoin(Tenant, Tenant.id == AgentSessionManagement.tenant_id)
+                .outerjoin(LLMFactories, LLMFactories.id == AgentSessionManagement.agent_id)
+                .outerjoin(ASRFactories, ASRFactories.id == AgentSessionManagement.asr_id)
+                .outerjoin(TTSFactories, TTSFactories.id == AgentSessionManagement.tts_id)
+                .where(AgentSessionManagement.id == id))
+        row = (await session.execute(stmt)).first()
+        if not row:
+            return None
+        sess, tenantname, llm_desc, asr_desc, tts_desc, rounds = row
+        data = _GetSessionDetail.model_validate(sess).model_dump()
+        data.update(tenantname=tenantname, llm_desc=llm_desc, asr_desc=asr_desc,
+                    tts_desc=tts_desc, rounds=rounds)
+        return data
 
 
 async def manage_agent_session(**kwargs):

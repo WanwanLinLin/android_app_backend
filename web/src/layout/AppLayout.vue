@@ -17,6 +17,10 @@
           <el-icon><OfficeBuilding /></el-icon>
           <span>租户管理</span>
         </el-menu-item>
+        <el-menu-item index="/sessions">
+          <el-icon><ChatLineSquare /></el-icon>
+          <span>对话记录</span>
+        </el-menu-item>
       </el-menu>
 
       <div class="menu-caption">资源池</div>
@@ -78,7 +82,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Cpu, OfficeBuilding, Microphone, ChatDotSquare, MagicStick,
-  Document, Location, SwitchButton
+  Document, Location, SwitchButton, ChatLineSquare
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { logout } from '@/api'

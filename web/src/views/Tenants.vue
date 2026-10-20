@@ -38,10 +38,13 @@
         <el-table-column prop="job" label="工作描述" show-overflow-tooltip min-width="160" />
         <el-table-column prop="phone_number" label="电话" width="140" />
         <el-table-column prop="create_time" label="创建时间" width="170" />
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button size="small" round plain type="primary" @click="goResources(row)">
               <el-icon style="margin-right:3px"><Files /></el-icon>资源管理
+            </el-button>
+            <el-button size="small" round plain type="success" @click="goSessions(row)">
+              <el-icon style="margin-right:3px"><ChatLineSquare /></el-icon>对话
             </el-button>
             <el-button size="small" round plain @click="openEdit(row)">编辑</el-button>
             <el-button size="small" round plain type="danger" @click="onDelete(row)">删除</el-button>
@@ -87,7 +90,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Plus, Search, Files, Box, OfficeBuilding } from '@element-plus/icons-vue'
+import { Refresh, Plus, Search, Files, Box, OfficeBuilding, ChatLineSquare } from '@element-plus/icons-vue'
 import { tenantList, tenantAdd, tenantUpdate, tenantDelete, userList } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -138,6 +141,11 @@ async function load() {
 
 function goResources(row) {
   router.push({ name: 'tenantResources', params: { id: row.id } })
+}
+
+// 跳转「对话记录」页并按该租户预置筛选
+function goSessions(row) {
+  router.push({ name: 'sessions', query: { tenant_id: row.id } })
 }
 
 function openAdd() {

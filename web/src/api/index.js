@@ -21,6 +21,11 @@ export const tenantUnbindSource = (id, payload) => http.post(`/v1/tenant/${id}/s
 export const tenantSourceList = (id) => http.get(`/v1/tenant/${id}/source/list`)
 export const tenantSetDefault = (id, payload) => http.post(`/v1/tenant/${id}/source/setDefault`, payload)
 
+// ===================== 对话记录（AgentSessionManagement，只读审计）=====================
+// list: {tenant_id?, start?, end?, page, size} → {rows, total}；get 返回含 dialogue_history 全文
+export const sessionList = (params) => http.get('/v1/session/list', { params })
+export const sessionGet = (id) => http.get(`/v1/session/get/${id}`)
+
 // ===================== 资源 CRUD（TTS / ASR / LLM / CHATTEMPLATE）=====================
 // 全部接口均需 JWT（http 拦截器自动注入 Authorization）；
 // TTS/figure 的 get 详情额外要求对称加密头（getNeedsAccesskey: true）
