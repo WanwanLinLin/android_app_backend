@@ -214,6 +214,7 @@ class DigitalHumanChatTemplate(Base):
     id = Column(Integer, primary_key=True, index=True)
     module_path = Column(String(256), comment="对话模板路径")
     desc = Column(String(256), default=None, comment="简短的模板描述")
+    content = Column(LONGTEXT, default=None, comment="模板协议/配置文档全文（JSON 文本），后台查看弹窗展示")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")

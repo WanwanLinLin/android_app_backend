@@ -19,6 +19,7 @@ class _GetChatTemplateList(BaseModel):
     id: int
     module_path: str
     desc: str
+    content: Union[str, None] = None
     status: Union[str, None] = None
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
@@ -87,7 +88,7 @@ async def update_one_chat_template(id: int, **kwargs):
                 select(DigitalHumanChatTemplate).filter_by(id=id))
             if not template:
                 return GeneticResponse(code=400, msg="data not exist")
-            for k in ("module_path", "desc"):
+            for k in ("module_path", "desc", "content"):
                 if kwargs.get(k, None) is not None:
                     setattr(template, k, kwargs.get(k))
             session.add(template)

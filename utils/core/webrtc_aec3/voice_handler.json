@@ -1,0 +1,178 @@
+{
+  "$schema_note": "以客户端（Android 终端）视角整理的 voice_handler 对话模板 WebSocket 数据格式说明。上行 = 客户端发送给服务端，下行 = 服务端推送给客户端。",
+  "protocol": {
+    "transport": "WebSocket",
+    "endpoint": "/v1/stream/recognition",
+    "query_params": {
+      "uid": "终端业务身份标识，即 Tenant.tenantname",
+      "token": "鉴权令牌，服务端 OnewayEncryption().verify_token 校验",
+      "timeStamp": "与 token 配对的时间戳"
+    },
+    "auth_failure_behavior": "token 校验失败抛 AccessKeyAuthError，连接终止"
+  },
+  "handshake": {
+    "description": "连接建立后（accept 成功），客户端必须先发一条 JSON 配置消息（prompt），服务端据此初始化 VAD/引擎并回会话事件",
+    "client_first_message": {
+      "direction": "uplink",
+      "frame_type": "text",
+      "example": {
+        "vad_max_thre": 0.9,
+        "vad_min_thre": 0.65,
+        "silence_threshold_ms": 1500,
+        "prompt": "vad"
+      },
+      "fields": {
+        "vad_max_thre": "可选，VAD 高置信度阈值，默认 0.9",
+        "vad_min_thre": "可选，VAD 低置信度阈值，默认 0.65",
+        "silence_threshold_ms": "可选，静音判尾时长（毫秒），默认 1500",
+        "prompt": "可选，对话模式，默认 'vad'"
+      }
+    },
+    "server_ack": {
+      "direction": "downlink",
+      "frame_type": "text",
+      "type": "session_create",
+      "example": {
+        "type": "session_create",
+        "session_id": "550e8400-e29b-41d4-a716-446655440000"
+      },
+      "fields": {
+        "session_id": "服务端生成的会话 UUID，客户端应留存用于对账/重连标识"
+      }
+    }
+  },
+  "uplink": {
+    "binary_audio": {
+      "description": "麦克风上行音频帧",
+      "frame_type": "binary",
+      "encoding": "Opus",
+      "decoder_on_server": "opuslib_next.Decoder(16000, 1)",
+      "sample_rate": 16000,
+      "channels": 1,
+      "samples_per_frame": 160,
+      "frame_duration_ms": 10,
+      "note": "每帧 Opus 数据服务端固定解码为 160 样本（10ms）PCM16LE"
+    },
+    "wakeup_command": {
+      "description": "唤醒词打断事件：客户端本地检测到唤醒词或用户主动打断播报时发送",
+      "frame_type": "text",
+      "type": "wakeup",
+      "example": {
+        "type": "wakeup"
+      },
+      "server_reaction": "服务端置会话状态为 talking，并立即下推 interrupt 事件"
+    }
+  },
+  "downlink": {
+    "binary_audio": {
+      "description": "TTS 播报音频帧（数字人回复语音）",
+      "frame_type": "binary",
+      "encoding": "Opus",
+      "encoder_on_server": "opuslib_next.Encoder(16000, 1, APPLICATION_AUDIO)",
+      "sample_rate": 16000,
+      "channels": 1,
+      "samples_per_frame": 320,
+      "frame_duration_ms": 20,
+      "note": "仅在会话空闲（idle）状态下发送；talking（打断）状态下服务端会丢弃待发音频"
+    },
+    "text_events": {
+      "description": "所有文本帧均为 JSON 对象，以 type 字段区分事件类型",
+      "events": [
+        {
+          "type": "session_create",
+          "description": "握手成功，会话创建",
+          "example": { "type": "session_create", "session_id": "uuid" },
+          "fields": { "session_id": "string，会话 UUID" }
+        },
+        {
+          "type": "interrupt",
+          "description": "打断事件：服务端要求终端立刻停止当前播放（VAD 检测到人声、客户端 wakeup、或本地 AEC/VAD 链路判起时触发）",
+          "example": { "type": "interrupt" },
+          "fields": {}
+        },
+        {
+          "type": "start_listening",
+          "description": "开始监听：VAD 判定用户开始说话",
+          "example": { "type": "start_listening" },
+          "fields": {}
+        },
+        {
+          "type": "stop_listening",
+          "description": "停止监听：静音超过 silence_threshold_ms，一句话结束，服务端已截取整句去识别",
+          "example": { "type": "stop_listening" },
+          "fields": {}
+        },
+        {
+          "type": "transcription",
+          "description": "整句语音识别最终结果",
+          "example": { "type": "transcription", "text": "今天天气怎么样", "language": "Chinese" },
+          "fields": {
+            "text": "string，识别文本，可能为空串",
+            "language": "string，识别语种（如 Chinese/English），无法判定时为空串"
+          }
+        },
+        {
+          "type": "chunk",
+          "description": "流式语音识别中间结果（实时 ASR 链路透传，随说话不断更新）",
+          "example": {
+            "type": "chunk",
+            "timestamp": null,
+            "text": "今天天气",
+            "language": "",
+            "latency_ms": null,
+            "chunk_count": null
+          },
+          "fields": {
+            "timestamp": "预留，当前为 null",
+            "text": "string，当前累计识别文本",
+            "language": "string，预留，当前为空串",
+            "latency_ms": "预留，当前为 null",
+            "chunk_count": "预留，当前为 null"
+          }
+        },
+        {
+          "type": "analysis",
+          "description": "服务端性能日志（首 token 耗时等），可用于客户端展示等待状态",
+          "example": { "type": "analysis", "text": "response in 0.83215 seconds" },
+          "fields": { "text": "string，人类可读的性能描述" }
+        },
+        {
+          "type": "assistant",
+          "description": "LLM 流式回复文本片段，按 token/小块连续下发，客户端拼接展示",
+          "example": { "type": "assistant", "text": "今天" },
+          "fields": { "text": "string，回复文本增量片段" }
+        },
+        {
+          "type": "finish",
+          "description": "本轮 LLM 回复结束（正常结束，或被用户打断中途终止时也会下发一次 finish）",
+          "example": { "type": "finish" },
+          "fields": {}
+        },
+        {
+          "type": "tts_done",
+          "description": "本轮回复的全部 TTS 音频已推送完毕（在 LLM 输出完成且所有分句合成发送后下发）",
+          "example": { "type": "tts_done" },
+          "fields": {}
+        }
+      ]
+    }
+  },
+  "typical_round_trip": [
+    "1. 客户端建立 WebSocket（带 uid/token/timeStamp）",
+    "2. 客户端上行 JSON 配置（handshake.client_first_message）",
+    "3. 服务端下行 session_create",
+    "4. 客户端持续上行 Opus 音频帧（10ms/帧）",
+    "5. 服务端下行 interrupt + start_listening（判起）",
+    "6. 服务端下行若干 chunk（流式识别中间结果）",
+    "7. 静音超时：服务端下行 stop_listening，随后下行 transcription（整句结果）",
+    "8. 服务端下行 analysis（可选）+ 若干 assistant 文本片段",
+    "9. 服务端与音频帧交错下行，全部发完后续下行 finish、tts_done",
+    "10. 若用户在播报中说话或发 wakeup，服务端下行 interrupt，本轮 assistant/音频中止"
+  ],
+  "notes": [
+    "会话状态机：idle（待机）/ talking（对话中）。talking 状态下服务端丢弃待合成与待发送的 TTS 数据以实现打断。",
+    "下行音频与文本事件在同一 WebSocket 上交错传输，客户端需按帧类型（binary/text）分别处理。",
+    "finish 与 tts_done 语义不同：finish 表示 LLM 文本输出结束；tts_done 表示音频推送全部完成，通常 tts_done 后到达（音频合成慢于文本生成）。",
+    "chunk 事件由实时 ASR 引擎链路（如 qwen3_asr_realtime）透传；voice_handler 本地 AEC+VAD 离线链路（当前未接线）只产生 transcription。"
+  ]
+}

@@ -37,7 +37,9 @@ export const RES_FIELDS = {
     label: '对话模板',
     fields: [
       { key: 'module_path', label: '模板路径', type: 'text', required: true, placeholder: '如 utils.core.webrtc_aec3.voice_handler' },
-      { key: 'desc', label: '描述', type: 'text', required: true }
+      { key: 'desc', label: '描述', type: 'text', required: true },
+      // hideInTable：内容太长不进表格列，仅在新增/编辑表单与「查看」弹窗中展示
+      { key: 'content', label: '协议文档(JSON)', type: 'textarea', required: false, hideInTable: true, placeholder: '可粘贴 JSON 协议/配置文档全文，查看弹窗中格式化展示' }
     ]
   }
 }

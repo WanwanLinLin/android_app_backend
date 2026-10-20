@@ -97,7 +97,10 @@ class TTSProvider(TTSProviderBase):
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30), connector=aiohttp.TCPConnector(ssl=False)) as session:
                         async with session.post(self.url, json=payload, headers=headers) as response:
                             resp = await response.json()
-                            # LOG(f"{TAG} resp is：{resp} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")  
+                            # LOG(f"{TAG} resp is：{resp} || 花费时间：{time.perf_counter() - start_time} 秒", "DEBUG")
+                            base_resp = resp.get("base_resp") or {}
+                            if base_resp.get("status_code") not in (0, None):
+                                raise RuntimeError(f"MiniMax 返回错误 {base_resp.get('status_code')}: {base_resp.get('status_msg')}")
                             data = resp["data"]["audio"]
                             audio_data = binascii.unhexlify(data)
                             async with aiofiles.open(_save_path, "wb") as f:
@@ -114,10 +117,7 @@ class TTSProvider(TTSProviderBase):
                                 if conn.status == WebsocketConnectionEvent.TALKING.value: break  # 打断tts数据传输
                                 data1 = await reader.read_frame()
                                 if len(data1) < 160 * 2:
-                                    padding_length = 640 - len(data1)
-                                    data1 += b'\x00' * padding_length
-                                    # Last partial frame
-                                    conn.tts_data_queue.put(data1)
+                                    # 尾帧不足一整帧，丢弃（全项目 provider 统一阈值：短帧会被 opus 编码器截断）
                                     break
 
                                 conn.tts_data_queue.put(data1)

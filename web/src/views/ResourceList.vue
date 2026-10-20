@@ -29,7 +29,7 @@
         <el-table-column prop="id" label="ID" width="70">
           <template #default="{ row }"><span class="mono">#{{ row.id }}</span></template>
         </el-table-column>
-        <el-table-column v-for="f in meta.fields" :key="f.key" :prop="f.key" :label="f.label"
+        <el-table-column v-for="f in tableFields" :key="f.key" :prop="f.key" :label="f.label"
                          :show-overflow-tooltip="true" min-width="120">
           <template #default="{ row }">{{ display(row[f.key]) }}</template>
         </el-table-column>
@@ -72,6 +72,8 @@
                       :prop="f.key" :rules="f.required ? [{ required: true, message: f.label + '不能为空', trigger: 'blur' }] : []">
           <el-input v-if="f.type === 'json'" v-model="form[f.key]" type="textarea" :rows="4"
                     :placeholder="f.placeholder || '请输入合法 JSON'" />
+          <el-input v-else-if="f.type === 'textarea'" v-model="form[f.key]" type="textarea" :rows="8"
+                    :placeholder="f.placeholder || ''" />
           <el-input v-else v-model="form[f.key]" :placeholder="f.placeholder || ''" />
         </el-form-item>
       </el-form>
@@ -115,10 +117,13 @@
     </el-dialog>
 
     <!-- 查看详情 -->
-    <el-dialog v-model="viewVisible" title="资源详情" width="560px" append-to-body>
+    <el-dialog v-model="viewVisible" title="资源详情" :width="detail.content ? '760px' : '560px'" append-to-body>
       <el-descriptions :column="1" border v-loading="viewing">
         <el-descriptions-item v-for="(v, k) in detail" :key="k" :label="k">
-          {{ display(v) }}
+          <!-- content 为协议文档全文：JSON 时格式化缩进展示，用可滚动 pre 保留排版 -->
+          <pre v-if="k === 'content' && v" class="content-pre">{{ prettyContent(v) }}</pre>
+          <span v-else-if="k !== 'content'">{{ display(v) }}</span>
+          <span v-else class="muted">—</span>
         </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
@@ -136,6 +141,8 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 const props = defineProps({ resType: { type: String, required: true } })
 const meta = computed(() => RES_FIELDS[props.resType])
+// 表格列：跳过 hideInTable 的长文本字段（如对话模板 content 协议文档）
+const tableFields = computed(() => meta.value.fields.filter((f) => !f.hideInTable))
 const typeIcon = computed(() => ({
   TTS: Microphone, ASR: ChatDotSquare, LLM: MagicStick, CHATTEMPLATE: Document
 }[props.resType] || Box))
@@ -166,6 +173,17 @@ function display(v) {
   if (v === null || v === undefined) return ''
   if (typeof v === 'object') return JSON.stringify(v)
   return v
+}
+
+// 协议文档内容：能解析为 JSON 就缩进 2 格美化，否则原样展示
+function prettyContent(v) {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') return JSON.stringify(v, null, 2)
+  try {
+    return JSON.stringify(JSON.parse(v), null, 2)
+  } catch (e) {
+    return String(v)
+  }
 }
 
 async function load() {
@@ -372,4 +390,11 @@ watch(() => props.resType, () => {
   color: #92640a; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
 }
 .muted { color: #c0c6d9; }
+.content-pre {
+  margin: 0; max-height: 420px; overflow: auto;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12px; line-height: 1.55; color: #3b3f52;
+  background: #f6f7fb; border: 1px solid #e6e9f2; border-radius: 8px;
+  padding: 10px 12px; white-space: pre-wrap; word-break: break-all;
+}
 </style>
