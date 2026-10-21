@@ -70,8 +70,8 @@
       <el-form :model="form" label-width="130px" ref="formRef">
         <el-form-item v-for="f in meta.fields" :key="f.key" :label="f.label"
                       :prop="f.key" :rules="f.required ? [{ required: true, message: f.label + '不能为空', trigger: 'blur' }] : []">
-          <el-input v-if="f.type === 'json'" v-model="form[f.key]" type="textarea" :rows="4"
-                    :placeholder="f.placeholder || '请输入合法 JSON'" />
+          <JsonEditor v-if="f.type === 'json'" v-model="form[f.key]"
+                      :reset-value="jsonReset[f.key] || ''" />
           <el-input v-else-if="f.type === 'textarea'" v-model="form[f.key]" type="textarea" :rows="8"
                     :placeholder="f.placeholder || ''" />
           <el-input v-else v-model="form[f.key]" :placeholder="f.placeholder || ''" />
@@ -154,6 +154,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled, WarningFilled, Connection, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete, resourceOffShelfPreview, resourceOffShelf, resourceOnShelf, connectCheck } from '@/api'
 import { RES_FIELDS } from './resFields'
+import JsonEditor from '@/components/JsonEditor.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -175,6 +176,8 @@ const formRef = ref()
 const submitting = ref(false)
 const editing = ref(null)
 const form = reactive({})
+// JSON 字段的初始原文（供 JsonEditor「重置」回到打开弹窗时的值）
+const jsonReset = reactive({})
 
 const viewVisible = ref(false)
 const viewing = ref(false)
@@ -222,6 +225,7 @@ function resetForm(row) {
     let v = row ? row[f.key] : ''
     if (f.type === 'json') v = (v && typeof v === 'object') ? JSON.stringify(v, null, 2) : (v || '')
     form[f.key] = v === null || v === undefined ? '' : v
+    if (f.type === 'json') jsonReset[f.key] = form[f.key]
   })
 }
 

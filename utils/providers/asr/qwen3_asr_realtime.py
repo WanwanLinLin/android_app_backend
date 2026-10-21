@@ -124,6 +124,10 @@ class ASRProvider(ASRProviderBase):
                             lang_type = LANG_MAP[resp["language"]]
                         else:
                             lang_type = ""
+                        # 识别语种写入连接对象，供 multi_tts 选音色；
+                        # 大模型若随后返回语种会覆盖它（LLM 优先，ASR 兜底）
+                        if lang_type:
+                            conn.current_language = lang_type
                         # # 尝试过一遍热词
                         # _final_text = hotwords_module.correct(resp["transcript"])
                         # # 再过一遍文本替换

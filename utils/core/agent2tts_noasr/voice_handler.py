@@ -40,6 +40,10 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
                     text = command.get("text") or ""
                     language = command.get("language") or ""
                     LOG(f"客户端语音识别结果: {text}", "DEBUG")
+                    # 客户端上报的识别语种写入连接对象，作为 multi_tts 选音色的 ASR 兜底；
+                    # 若随后大模型返回语种会覆盖它（LLM 优先，ASR 兜底）
+                    if language:
+                        conn.current_language = language
                     # 整句识别完成 = 本轮说话结束：恢复 IDLE 让 TTS 音频可下行，
                     # 语义等同 webrtc_aec3 模板里 VAD 判尾后的 stop_listening。
                     conn.status = WebsocketConnectionEvent.IDLE.value

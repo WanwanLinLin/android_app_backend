@@ -40,7 +40,8 @@ class LLMProvider(LLMProviderBase):
                                 json_str = decoded_data.split('data:')[1].strip()
                                 output = json.loads(json_str)
                                 if "done" in output and output["done"]: break
-                                if output.get("type", "") == "meta":
+                                if output.get("type", "") == "meta" and output.get("language"):
+                                    # 大模型语种优先级高于 ASR；返回空视为未提供，保留 ASR 语种
                                     kwargs["conn"].current_language = output['language']
                                     LOG(f"{self.name} 获取到语言类型：{output['language']}", "DEBUG")
                                 yield output["text"]

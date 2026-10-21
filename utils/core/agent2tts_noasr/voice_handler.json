@@ -64,13 +64,14 @@
       },
       "fields": {
         "text": "string，整句识别文本；空串服务端只回显不送 LLM",
-        "language": "可选，string，识别语种标识，服务端原样回显"
+        "language": "可选，string，识别语种标识（如 Chinese/English/Cantonese/Japanese 或 zh/en/yue/ja）。非空时写入会话当前语种，供 multi_tts 选择 TTS 音色（大模型若随后返回语种则以大模型为准）；下行回显原样返回"
       },
       "server_reaction": [
         "1. 会话状态置 idle（视为用户说完一句话，与 webrtc_aec3 模板 VAD 判尾等效）",
         "2. 下行 stop_listening 事件",
         "3. 下行 transcription 回显（text/language 原样）",
-        "4. text 非空时投递 LLM 队列，触发本轮智能体回复"
+        "4. language 非空时更新会话当前语种（multi_tts 音色选择的 ASR 兜底）",
+        "5. text 非空时投递 LLM 队列，触发本轮智能体回复"
       ]
     },
     "wakeup_command": {
