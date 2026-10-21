@@ -21,6 +21,9 @@ export const tenantUnbindSource = (id, payload) => http.post(`/v1/tenant/${id}/s
 export const tenantSourceList = (id) => http.get(`/v1/tenant/${id}/source/list`)
 export const tenantSetDefault = (id, payload) => http.post(`/v1/tenant/${id}/source/setDefault`, payload)
 
+// 资源连通性检测：{url, port?, timeout?} → {reachable, host, port, latency_ms, error}
+export const connectCheck = (payload) => http.post('/v1/connectCheck', payload)
+
 // ===================== 对话记录（AgentSessionManagement，只读审计）=====================
 // list: {tenant_id?, start?, end?, page, size} → {rows, total}；get 返回含 dialogue_history 全文
 export const sessionList = (params) => http.get('/v1/session/list', { params })

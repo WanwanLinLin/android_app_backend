@@ -126,6 +126,24 @@
           <span v-else class="muted">—</span>
         </el-descriptions-item>
       </el-descriptions>
+      <!-- 连通性检测结果：成功/失败摘要 + 目标与耗时 -->
+      <div v-if="checkResult" class="check-result" :class="checkResult.reachable ? 'ok' : 'fail'">
+        <el-icon><component :is="checkResult.reachable ? CircleCheck : CircleClose" /></el-icon>
+        <template v-if="checkResult.reachable">
+          连通正常：<span class="mono">{{ checkResult.host }}:{{ checkResult.port }}</span>
+          TCP 建连耗时 {{ checkResult.latency_ms }} ms
+        </template>
+        <template v-else>
+          无法连通：<span class="mono">{{ checkResult.host }}:{{ checkResult.port }}</span>
+          {{ checkResult.error }}
+        </template>
+      </div>
+      <template #footer>
+        <el-button v-if="detail.url" :loading="checking" @click="onCheckConnect">
+          <el-icon style="margin-right:3px"><Connection /></el-icon>检测连通性
+        </el-button>
+        <el-button type="primary" @click="viewVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -133,8 +151,8 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
-import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete, resourceOffShelfPreview, resourceOffShelf, resourceOnShelf } from '@/api'
+import { Refresh, Plus, Search, View, Box, Microphone, ChatDotSquare, MagicStick, Document, Lock, InfoFilled, WarningFilled, Connection, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { resourceList, resourceAdd, resourceGet, resourceUpdate, resourceDelete, resourceOffShelfPreview, resourceOffShelf, resourceOnShelf, connectCheck } from '@/api'
 import { RES_FIELDS } from './resFields'
 import { useAuthStore } from '@/stores/auth'
 
@@ -332,16 +350,33 @@ async function confirmOffShelf() {
   }
 }
 
+const checking = ref(false)
+const checkResult = ref(null)
+
 async function openView(row) {
   viewVisible.value = true
   viewing.value = true
   detail.value = {}
+  checkResult.value = null
   try {
     detail.value = await resourceGet(props.resType, row.id)
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     viewing.value = false
+  }
+}
+
+// 资源连通性检测：把资源 url 交给后端做 TCP 建连探测（ip:端口 / 域名均可）
+async function onCheckConnect() {
+  checking.value = true
+  checkResult.value = null
+  try {
+    checkResult.value = await connectCheck({ url: detail.value.url })
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    checking.value = false
   }
 }
 
@@ -390,6 +425,13 @@ watch(() => props.resType, () => {
   color: #92640a; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
 }
 .muted { color: #c0c6d9; }
+.check-result {
+  display: flex; align-items: center; gap: 7px; margin-top: 12px;
+  font-size: 13px; padding: 9px 12px; border-radius: 8px; line-height: 1.5;
+}
+.check-result.ok { background: rgba(103, 194, 58, 0.09); border-left: 3px solid #67c23a; color: #3f6b2a; }
+.check-result.fail { background: rgba(245, 108, 108, 0.08); border-left: 3px solid #f56c6c; color: #a04040; }
+.check-result .el-icon { margin-top: 1px; }
 .content-pre {
   margin: 0; max-height: 420px; overflow: auto;
   font-family: ui-monospace, "SF Mono", Consolas, monospace;

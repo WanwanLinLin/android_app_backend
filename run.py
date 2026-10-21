@@ -16,6 +16,7 @@ from modules.video.views import router as video_router
 from modules.figure.views import router as figure_router
 from modules.chat_template.views import router as chat_template_router
 from modules.session.views import router as session_router
+from modules.connect_check.views import router as connect_check_router
 from utils.apierror import AdminRequiredError, JwtAuthError
 
 app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1")
@@ -37,6 +38,7 @@ app.include_router(video_router)
 app.include_router(figure_router)
 app.include_router(chat_template_router)
 app.include_router(session_router)
+app.include_router(connect_check_router)
 
 
 @app.exception_handler(JwtAuthError)
