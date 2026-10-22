@@ -25,7 +25,8 @@ class TTSProvider(TTSProviderBase):
     def __init__(self, config: Dict):
         self.url: str = config.get("url")
         self.voice = config.get("voice")
-        self.additional_param = config.get("additional_param", {})
+        # 参数键 2026-10-22 起统一为 params（原 additional_param）；回退读旧键兼容外部配置
+        self.additional_param = config.get("params") or config.get("additional_param") or {}
         self.audio_index = 0
         self.qwen3_tts_websocket = None
         self.init_tts = False

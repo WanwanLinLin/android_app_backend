@@ -23,7 +23,8 @@ from utils.common.auth import OnewayEncryption, validate_stream_accesskey
 from utils.core.webrtc_aec3.voice_handler import (ConnectionObjectCustomAec3)
 from utils.common.enumTaskType import WebsocketServerEvent
 from mybatisPlus.tenant_orm import (get_source_list, get_source_config,
-                                    get_default_source_config, save_default_source_config)
+                                    get_default_source_config, save_default_source_config,
+                                    PluginUnavailableError)
 from mybatisPlus.agent_orm import manage_agent_session
 from utils.getLogs import LOG
 from setting import config_data, vad_model_paths
@@ -79,10 +80,18 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     # 客户端可不下发 source_config（或下发 null / 只带部分字段）；缺哪一项就由后端
     # 用该租户在 SourceList 中标记的默认资源补齐，全缺时即完全走租户默认配置。
     source_config = prompt.get("source_config") or {}
-    all_configs = await get_source_config(llm_id=source_config.get("model_id", None),
-                                          tts_id=source_config.get("tts_id", None),
-                                          asr_id=source_config.get("asr_id", None),
-                                          uid=uid)
+    # 个性插件体系下资源可能「严格不可用」（基础插件下架/注销、个性插件被删）。
+    # 此时拒绝建会话：向终端发送错误事件后关闭连接，不带坏配置继续跑。
+    try:
+        all_configs = await get_source_config(llm_id=source_config.get("model_id", None),
+                                              tts_id=source_config.get("tts_id", None),
+                                              asr_id=source_config.get("asr_id", None),
+                                              uid=uid)
+    except PluginUnavailableError as e:
+        LOG(f"会话拒绝（uid={uid}）：{e}", "WARN")
+        await websocket.send_json({"type": "error", "msg": f"资源配置不可用：{e}"})
+        await websocket.close(code=4400, reason=str(e)[:120])
+        return
     llm_config = all_configs.get("llm_config")
     tts_config = all_configs.get("tts_config")
     asr_config = all_configs.get("asr_config")

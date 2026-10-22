@@ -15,9 +15,12 @@ from modules.stream.views import router as stream_router
 from modules.video.views import router as video_router
 from modules.figure.views import router as figure_router
 from modules.chat_template.views import router as chat_template_router
+from modules.base_plugin.views import router as base_plugin_router
+from modules.custom_plugin.views import router as custom_plugin_router
 from modules.session.views import router as session_router
 from modules.connect_check.views import router as connect_check_router
 from utils.apierror import AdminRequiredError, JwtAuthError
+from utils.getLogs import LOG
 
 app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1")
 
@@ -37,6 +40,8 @@ app.include_router(stream_router)
 app.include_router(video_router)
 app.include_router(figure_router)
 app.include_router(chat_template_router)
+app.include_router(base_plugin_router)
+app.include_router(custom_plugin_router)
 app.include_router(session_router)
 app.include_router(connect_check_router)
 
@@ -62,6 +67,8 @@ async def admin_required_exception_handler(request, exc: Exception):
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc: Exception):
     tb_str = traceback.format_exc()
+    # 完整堆栈落日志：此前只回给前端截断信息且不写日志，线上偶发 500 无法事后排查
+    LOG(f"未处理异常 {request.method} {request.url.path}: {exc}\n{tb_str}", "ERROR")
     return JSONResponse(
         status_code=200,
         content={"code": 500, "msg": f"Internal Server Error: {str(exc)}, {tb_str[-150:]}", "data": None}

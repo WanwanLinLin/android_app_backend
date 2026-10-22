@@ -93,14 +93,14 @@ async def get_one_agent(id: int):
 
 
 async def update_one_agent(id: int, **kwargs):
+    """更新大模型。2026-10-22 起旧资源池仅开放 params 编辑（其余字段随旧池下线锁定）。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             llm = await session.scalar(select(LLMFactories).filter_by(id=id))
             if not llm:
                 return GeneticResponse(code=400, msg="data not exist")
-            for k in ("type", "url", "desc", "apikey", "params"):
-                if kwargs.get(k, None) is not None:
-                    setattr(llm, k, kwargs.get(k))
+            if kwargs.get("params", None) is not None:
+                llm.params = kwargs.get("params")
             session.add(llm)
             return GeneticResponse()
 

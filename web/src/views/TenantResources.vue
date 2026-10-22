@@ -75,10 +75,10 @@
         </el-select>
         <el-select v-model="bindRefId" filterable placeholder="搜索并选择资源" style="flex: 1; min-width: 260px">
           <el-option v-for="opt in pool[bindType] || []" :key="opt.id"
-                     :label="`#${opt.id} ${opt.desc || ''} (${opt.type || ''})`" :value="opt.id"
+                     :label="optionLabel(opt)" :value="opt.id"
                      :disabled="opt.status === 'off_shelf'">
             <span :style="opt.status === 'off_shelf' ? 'color:#c0c6d9' : ''">
-              {{ `#${opt.id} ${opt.desc || ''} (${opt.type || ''})` }}
+              {{ optionLabel(opt) }}
               <el-tag v-if="opt.status === 'off_shelf'" type="warning" size="small" effect="light" style="margin-left:6px">已下架</el-tag>
             </span>
           </el-option>
@@ -153,7 +153,7 @@ import {
 } from '@element-plus/icons-vue'
 import {
   tenantGet, tenantBindSource, tenantUnbindSource,
-  tenantSourceList, tenantSetDefault, resourceList, userList
+  tenantSourceList, tenantSetDefault, resourceList, userList, customPluginList
 } from '@/api'
 
 const route = useRoute()
@@ -168,7 +168,15 @@ const TYPES = [
 ]
 const iconOf = (t) => (TYPES.find((x) => x.value === t) || {}).icon || Box
 const colorOf = (t) => (TYPES.find((x) => x.value === t) || {}).color || '#909399'
-const typeLabel = (t) => (TYPES.find((x) => x.value === t) || {}).label || t
+const typeLabel = (t) => {
+  if (t === 'TTS_CUSTOM') return 'TTS 个性插件'
+  if (t === 'ASR_CUSTOM') return 'ASR 个性插件'
+  if (t === 'LLM_CUSTOM') return 'LLM 个性插件'
+  return (TYPES.find((x) => x.value === t) || {}).label || t
+}
+// 绑定下拉/统计以「基础类别」归组：个性插件绑定（*_CUSTOM）与旧 TTS/ASR/LLM
+// 合并显示在同一类别卡里
+const baseTypeOf = (t) => (t || '').replace('_CUSTOM', '')
 
 const tenant = ref(null)
 const admins = ref([])
@@ -181,16 +189,23 @@ const binding = ref(false)
 const pool = reactive({ TTS: [], ASR: [], LLM: [], CHATTEMPLATE: [] })
 
 const filteredBound = computed(() =>
-  filterType.value ? bound.value.filter((x) => x.type === filterType.value) : bound.value
+  filterType.value ? bound.value.filter((x) => baseTypeOf(x.type) === filterType.value) : bound.value
 )
-const countOf = (t) => bound.value.filter((x) => x.type === t).length
-const defaultOf = (t) => bound.value.find((x) => x.type === t && x.is_default)
+const countOf = (t) => bound.value.filter((x) => baseTypeOf(x.type) === t).length
+const defaultOf = (t) => bound.value.find((x) => baseTypeOf(x.type) === t && x.is_default)
 
+// 绑定口径（资源体系重构后）：TTS/ASR/LLM 一律绑「个性插件」（自己的 + 平台归属的），
+// 对话模板仍绑资源池。普通用户不可直绑旧 Factories 资源（后端同样强校验）。
 async function ensurePool(type) {
   if (pool[type] && pool[type].length) return
   try {
-    const data = await resourceList(type)
-    pool[type] = data.rows || []
+    if (type === 'CHATTEMPLATE') {
+      const data = await resourceList(type)
+      pool[type] = data.rows || []
+    } else {
+      const data = await customPluginList(type)
+      pool[type] = data.rows || []
+    }
   } catch (e) { /* 资源池加载失败不阻塞页面 */ }
 }
 
@@ -225,8 +240,19 @@ async function refreshAll() {
 }
 
 function poolItem(row) {
-  return (pool[row.type] || []).find((x) => x.id === row.reference_id)
+  return (pool[baseTypeOf(row.type)] || []).find((x) => x.id === row.reference_id)
 }
+
+// 下拉选项文案：个性插件显示名称+基础插件，对话模板维持原格式
+function optionLabel(opt) {
+  if (opt.base_plugin_name !== undefined) {
+    return `#${opt.id} ${opt.name || ''}${opt.base_plugin_name ? ` (${opt.base_plugin_name})` : ''}`
+  }
+  return `#${opt.id} ${opt.desc || ''} (${opt.type || ''})`
+}
+
+// 提交给后端的绑定类型：TTS/ASR/LLM → *_CUSTOM（个性插件绑定），模板不变
+const bindTypeFor = (t) => (t === 'CHATTEMPLATE' ? t : `${t}_CUSTOM`)
 
 // 已绑定资源的展示信息优先取后端随绑定一起返回的 desc/status（已下架资源
 // 不在非 admin 的资源池列表里，不能靠 pool join）；pool 仅作兜底。
@@ -269,7 +295,7 @@ async function doBind() {
   if (!bindRefId.value) { ElMessage.warning('请选择要绑定的资源'); return }
   binding.value = true
   try {
-    await tenantBindSource(tenantId, { type: bindType.value, reference_id: bindRefId.value })
+    await tenantBindSource(tenantId, { type: bindTypeFor(bindType.value), reference_id: bindRefId.value })
     ElMessage.success('绑定成功')
     bindRefId.value = null
     await loadBound()

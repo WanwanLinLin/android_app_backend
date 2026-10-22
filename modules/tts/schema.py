@@ -19,4 +19,4 @@ class UpdateVoiceModel(BaseModel):
     tag: Union[str, None] = None
     voice: Union[str, None] = None
     apikey: Union[str, None] = None
-    additional_param: Union[dict, None] = None
+    params: Union[dict, None] = None

@@ -27,10 +27,10 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 
 # 资源池写操作（新增/更新/删除）一律仅 role=admin 可用，理由同 tts/views.py。
 
-@router.post("/v1/agent/list", summary="获取大模型列表", tags=["通用接口"])
-async def _list_agents(admin: dict = Depends(current_admin)):
-    """admin 看全量（含已下架，便于重新上架）；普通用户只看在售资源。"""
-    return GeneticResponse(data=await get_agent_list(only_active=not is_admin(admin)))
+@router.post("/v1/agent/list", summary="获取大模型列表（旧资源池，仅管理员）", tags=["通用接口"])
+async def _list_agents(admin: dict = Depends(require_admin)):
+    """旧 Factories 资源池为遗留通道，理由同 asr/views.py。"""
+    return GeneticResponse(data=await get_agent_list(only_active=False))
 
 
 @router.post("/v1/agent/add", summary="添加大模型/agent", tags=["通用接口"])

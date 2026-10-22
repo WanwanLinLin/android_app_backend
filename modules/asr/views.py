@@ -27,10 +27,12 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 
 # 资源池写操作（新增/更新/删除）一律仅 role=admin 可用，理由同 tts/views.py。
 
-@router.post("/v1/asr/list", summary="获取语音识别模型列表", tags=["通用接口"])
-async def _list_asr(admin: dict = Depends(current_admin)):
-    """admin 看全量（含已下架，便于重新上架）；普通用户只看在售资源。"""
-    return GeneticResponse(data=await get_asr_list(only_active=not is_admin(admin)))
+@router.post("/v1/asr/list", summary="获取语音识别模型列表（旧资源池，仅管理员）", tags=["通用接口"])
+async def _list_asr(admin: dict = Depends(require_admin)):
+    """旧 Factories 资源池为遗留通道：资源体系重构后普通用户走
+    /v1/customPlugin/list（个性插件）与 /v1/basePlugin/list（基础插件），
+    本列表仅管理员可见（存量运维、迁移核对）。"""
+    return GeneticResponse(data=await get_asr_list(only_active=False))
 
 
 @router.post("/v1/asr/add", summary="添加语音识别模型", tags=["通用接口"])

@@ -23,19 +23,15 @@
         </el-menu-item>
       </el-menu>
 
-      <div class="menu-caption">资源池</div>
+      <div class="menu-caption">插件体系</div>
       <el-menu :default-active="activeMenu" router class="menu">
-        <el-menu-item index="/tts">
-          <el-icon><Microphone /></el-icon>
-          <span>TTS 音色</span>
+        <el-menu-item index="/basePlugins">
+          <el-icon><Grid /></el-icon>
+          <span>基础插件</span>
         </el-menu-item>
-        <el-menu-item index="/asr">
-          <el-icon><ChatDotSquare /></el-icon>
-          <span>ASR 识别</span>
-        </el-menu-item>
-        <el-menu-item index="/llm">
+        <el-menu-item index="/customPlugins">
           <el-icon><MagicStick /></el-icon>
-          <span>LLM 大模型</span>
+          <span>个性插件</span>
         </el-menu-item>
         <el-menu-item index="/chatTemplate">
           <el-icon><Document /></el-icon>
@@ -81,8 +77,8 @@ import { computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Cpu, OfficeBuilding, Microphone, ChatDotSquare, MagicStick,
-  Document, Location, SwitchButton, ChatLineSquare
+  Cpu, OfficeBuilding, MagicStick,
+  Document, Location, SwitchButton, ChatLineSquare, Grid
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { logout } from '@/api'

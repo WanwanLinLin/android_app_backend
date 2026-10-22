@@ -23,7 +23,7 @@ class _GetTTSList(BaseModel):
     tag: Union[str, None]
     voice: Union[str, None]
     apikey: Union[str, None]
-    additional_param: Union[dict, None]
+    params: Union[dict, None]
     status: Union[str, None] = None
     create_time: Union[datetime, str, None]
     update_time: Union[datetime, str, None]
@@ -37,8 +37,8 @@ class _GetTTSList(BaseModel):
         # 迁移前的存量行 status 为 NULL，语义等同在售
         return v or "active"
 
-    @field_validator("additional_param", mode="before")
-    def parse_additional_param(cls, v):
+    @field_validator("params", mode="before")
+    def parse_params(cls, v):
         # 列默认值为字符串 "{}"，存量数据可能存的是 JSON 文本而非 dict
         if isinstance(v, str):
             try:
@@ -107,14 +107,14 @@ async def get_one_voice(id: int):
 
 
 async def update_one_voice(id: int, **kwargs):
+    """更新音色。2026-10-22 起旧资源池仅开放 params 编辑（其余字段随旧池下线锁定）。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             voice = await session.scalar(select(TTSFactories).filter_by(id=id))
             if not voice:
                 return GeneticResponse(code=400, msg="data not exist")
-            for k in ("type", "url", "desc", "tag", "voice", "apikey", "additional_param"):
-                if kwargs.get(k, None) is not None:
-                    setattr(voice, k, kwargs.get(k))
+            if kwargs.get("params", None) is not None:
+                voice.params = kwargs.get("params")
             session.add(voice)
             return GeneticResponse()
 

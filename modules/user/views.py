@@ -62,7 +62,9 @@ async def _login(info: schema.UserLogin):
         "access_token": access_token,
         "token_type": "bearer",
         "role": (me or {}).get("role"),
-        "nickname": (me or {}).get("nickname")
+        "nickname": (me or {}).get("nickname"),
+        # User.id：前端据此判断「个性插件是否我的」（后端仍独立校验）
+        "id": (me or {}).get("id")
     })
     
 
@@ -165,7 +167,9 @@ async def _bind_source(tenant_id: int, info: schema.BindSourceModel,
                        admin: dict = Depends(current_admin)):
     denied = await ensure_tenant_access(admin, tenant_id)
     if denied: return denied
-    return await bind_source(tenant_id, info.type, info.reference_id)
+    # 普通用户仅可绑个性插件（*_CUSTOM）与对话模板；旧资源直绑仅 admin 可用
+    return await bind_source(tenant_id, info.type, info.reference_id,
+                             admin=is_admin(admin), user_id=admin["id"])
 
 
 @router.post("/v1/tenant/{tenant_id}/source/unbind", summary="解绑租户资源", tags=["租户管理"])
@@ -188,4 +192,5 @@ async def _set_source_default(tenant_id: int, info: schema.BindSourceModel,
                               admin: dict = Depends(current_admin)):
     denied = await ensure_tenant_access(admin, tenant_id)
     if denied: return denied
-    return await set_source_default(tenant_id, info.type, info.reference_id)
+    return await set_source_default(tenant_id, info.type, info.reference_id,
+                                    admin=is_admin(admin), user_id=admin["id"])

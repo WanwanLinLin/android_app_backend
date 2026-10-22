@@ -61,3 +61,21 @@ export const resourceOffShelf = (t, id) =>
 
 export const resourceOnShelf = (t, id) =>
   http.post(RES_META[t].onShelf.replace('{id}', id))
+
+// ===================== 基础插件（utils/providers 代码插件登记，写操作仅管理员）=====================
+export const basePluginList = () => http.post('/v1/basePlugin/list')
+export const basePluginGet = (id) => http.get(`/v1/basePlugin/get/${id}`)
+export const basePluginAdd = (payload) => http.post('/v1/basePlugin/add', payload)
+export const basePluginUpdate = (id, payload) => http.post(`/v1/basePlugin/update/${id}`, payload)
+export const basePluginDelete = (id) => http.post(`/v1/basePlugin/delete/${id}`)
+export const basePluginOffShelfPreview = (id) => http.get(`/v1/basePlugin/offShelfPreview/${id}`)
+export const basePluginOffShelf = (id) => http.post(`/v1/basePlugin/offShelf/${id}`)
+export const basePluginOnShelf = (id) => http.post(`/v1/basePlugin/onShelf/${id}`)
+
+// ===================== 个性插件（用户在基础插件上定义的私有配置）=====================
+// category: TTS | ASR | LLM；普通用户见自己的+平台的，admin 见全部
+export const customPluginList = (category) => http.get('/v1/customPlugin/list', { params: { category } })
+export const customPluginGet = (id) => http.get(`/v1/customPlugin/get/${id}`)
+export const customPluginAdd = (payload) => http.post('/v1/customPlugin/add', payload)
+export const customPluginUpdate = (id, payload) => http.post(`/v1/customPlugin/update/${id}`, payload)
+export const customPluginDelete = (id) => http.post(`/v1/customPlugin/delete/${id}`)

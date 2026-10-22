@@ -104,7 +104,8 @@ class TTSFactories(Base):
     voice = Column(String(128), index=True, comment="音色名称")
     apikey = Column(String(128), comment="请求密钥")
     create_time = Column(DateTime, default=lambda: beijing_now())
-    additional_param = Column(JSON, comment="大模型参数", default="{}")
+    # 2026-10-22: additional_param 改名 params，与 LLM/ASR 资源表及个性插件 config 统一键位
+    params = Column(JSON, comment="音色参数", default="{}")
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
     status = shelf_status()
@@ -200,6 +201,65 @@ class AgentSessionManagement(Base):
     asr_id = Column(Integer, comment="asr id")
     tts_id = Column(Integer, comment="tts id")
     dialogue_history = Column(JSON, default=None, comment="对话记录")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+
+
+class BasePlugin(Base):
+    """基础插件登记表——对应 utils/providers/{tts|asr|llm} 下的插件代码文件。
+
+    插件本体是磁盘上的代码文件（一个插件一个文件，排除 base.py / __init__.py），
+    本表只做「登记 + 元数据 + 上下架」：
+      - 列表接口会自动扫描插件目录，把磁盘上新出现、尚未登记的文件自动登记为在售；
+      - 管理员在后台可修改展示信息（desc / default_config 默认参数模板）、
+        上下架、删除（注销登记——仅移除登记并连带禁用，不动磁盘代码文件）；
+      - 新增 = 登记一个磁盘上已存在但尚未登记的文件（代码文件本身不能通过后台创建）。
+
+    default_config 是给个性插件作者预填的默认参数模板（如 {"temperature": 0.7}），
+    与运行时无关——运行时一律以个性插件自带的完整 config 为准。
+
+    下架（status=off_shelf）语义为严格全面禁用：基于该基础插件的个性插件
+    对普通用户不可见、不可绑定，已绑定租户的会话运行时也会直接拒绝。
+    """
+    __tablename__ = "BasePlugin"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String(10), index=True, nullable=False, comment="插件类别：TTS | ASR | LLM")
+    name = Column(String(64), index=True, nullable=False, comment="插件名（不含 .py 的文件名，运行时 import 用）")
+    desc = Column(String(256), default=None, comment="插件描述")
+    default_config = Column(JSON, default=None, comment="默认参数模板（创建个性插件时预填），与运行时无关")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+    status = shelf_status()
+
+
+class CustomPlugin(Base):
+    """个性插件——普通用户在某个基础插件之上定义的私有配置。
+
+    config 为完整自带配置（type/url/apikey/params 等，
+    结构同对应 Factories 行），创建时从基础插件的 default_config 预填、由用户改定；
+    运行时直接使用这份 config，基础插件后续修改不影响个性插件。
+
+    运行时解析规则：provider 文件名取关联基础插件的 name（写入 config 的
+    type 字段；TTS 另写 tag），保证既有 importlib 链路无需改动。
+    基础插件已被删除/下架时，个性插件一律不可用（严格全面禁用，含存量绑定）。
+
+    owner_id 指向 User.id（本项目不使用外键）：个性插件**严格私有**，恒为创建者本人。
+    （2026-10-22 取消"平台归属/共享"概念——存量 Factories 迁移行已统一归属主账号
+    hopesen，不再使用 owner_id=NULL。列仍允许 NULL 仅为兼容历史，运行时不产生 NULL 行。）
+    仅创建者本人可见可改可删可绑；admin 列表可见全部但不代改别人的插件。
+    """
+    __tablename__ = "CustomPlugin"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False, comment="个性插件名称")
+    category = Column(String(10), index=True, nullable=False, comment="插件类别：TTS | ASR | LLM")
+    base_plugin_id = Column(Integer, index=True, default=None, comment="所属基础插件 id（BasePlugin.id，无外键）")
+    desc = Column(String(256), default=None, comment="简短描述")
+    config = Column(JSON, default=None, comment="完整自带配置（结构同 Factories 行：type/url/apikey/params 等）")
+    owner_id = Column(Integer, index=True, default=None, comment="创建者 User.id（严格私有，恒为本人）")
     create_time = Column(DateTime, default=lambda: beijing_now())
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")

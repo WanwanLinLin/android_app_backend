@@ -64,6 +64,14 @@ body {
   border: none !important;
   transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
+/* 主按钮文字白色：上面的渐变背景对**所有** .el-button--primary 生效（含 plain），
+   所以文字/图标必须统一白色——包括 plain（浅底按钮同样被刷成了蓝底）。
+   只排除 is-text / is-link 两类纯文字按钮（它们没有背景填充，用主色字才可见）。 */
+.el-button--primary:not(.is-text):not(.is-link),
+.el-button--primary:not(.is-text):not(.is-link) .el-icon,
+.el-button--primary:not(.is-text):not(.is-link) span {
+  color: #fff !important;
+}
 .el-button--primary:hover {
   filter: brightness(1.08);
   box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);

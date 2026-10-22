@@ -24,7 +24,7 @@
         查看详情走对称加密接口：请求头 dk=毫秒时间戳，token=SHA1(时间戳\tAPP_KEY)，由前端 crypto-js 实时计算
       </div>
 
-      <el-table :data="filtered" v-loading="loading" stripe style="width: 100%"
+      <el-table :data="paged" v-loading="loading" stripe style="width: 100%"
                 :header-cell-style="{ fontWeight: 600 }">
         <el-table-column prop="id" label="ID" width="70">
           <template #default="{ row }"><span class="mono">#{{ row.id }}</span></template>
@@ -62,6 +62,12 @@
           </div>
         </template>
       </el-table>
+
+      <div class="pager" v-if="filtered.length">
+        <el-pagination background layout="total, sizes, prev, pager, next"
+                       :total="filtered.length" v-model:current-page="page" v-model:page-size="pageSize"
+                       :page-sizes="[10, 20, 50, 100]" />
+      </div>
     </div>
 
     <!-- 新增 / 编辑 -->
@@ -190,6 +196,16 @@ const filtered = computed(() => {
     Object.values(r).some((v) => typeof v === 'string' && v.toLowerCase().includes(k)))
 })
 
+// 前端分页：资源接口全量返回，按 filtered 切片展示（与基础/个性插件页同口径）
+const page = ref(1)
+const pageSize = ref(10)
+const paged = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filtered.value.slice(start, start + pageSize.value)
+})
+// 搜索词变化后回到第一页，避免停留在超出范围的页码上
+watch(keyword, () => { page.value = 1 })
+
 function display(v) {
   if (v === null || v === undefined) return ''
   if (typeof v === 'object') return JSON.stringify(v)
@@ -213,6 +229,9 @@ async function load() {
     const data = await resourceList(props.resType)
     rows.value = data.rows || []
     total.value = data.total || rows.value.length
+    // 保持当前页（编辑保存后的静默刷新不跳页）；数据变少导致越界时钳制到最后一页
+    const maxPage = Math.max(1, Math.ceil(rows.value.length / pageSize.value))
+    if (page.value > maxPage) page.value = maxPage
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
@@ -393,6 +412,7 @@ watch(() => props.resType, () => {
   rows.value = []
   total.value = 0
   keyword.value = ''
+  page.value = 1
   formVisible.value = false
   viewVisible.value = false
   load()
@@ -415,6 +435,7 @@ watch(() => props.resType, () => {
   color: #92640a; font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 14px;
 }
 .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; color: #6366f1; }
+.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 .empty { padding: 30px 0; text-align: center; color: #98a0b3; font-size: 13px; }
 .shelf-summary {
   display: flex; align-items: flex-start; gap: 8px;

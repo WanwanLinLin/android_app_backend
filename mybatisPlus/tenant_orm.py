@@ -1,15 +1,35 @@
 from datetime import datetime
 from typing import Union, List
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from utils.common.schema import GeneticResponse
 from .tables.industrial_park import (ASRFactories, Tenant, SourceList, LLMFactories,
-                                     TTSFactories, DigitalHumanChatTemplate, User)
+                                     TTSFactories, DigitalHumanChatTemplate, User,
+                                     BasePlugin, CustomPlugin,
+                                     STATUS_ACTIVE, STATUS_OFF_SHELF)
 from .tables.sqlcli import AsyncSessionLocal
 from utils.common.enumTaskType import SourceTypeEnum
 from .shelf_orm import is_off_shelf
+# PluginUnavailableError 定义在 custom_plugin_orm（resolve_runtime_config 抛的就是它），
+# 此处 re-export 供 modules/stream 统一捕获——两处必须是同一个异常类。
+from .custom_plugin_orm import (resolve_runtime_config, assert_custom_bindable,
+                                PluginUnavailableError)
 from utils.getLogs import LOG
+
+
+def _is_custom_type(type: str) -> bool:
+    return type in (SourceTypeEnum.TTS_CUSTOM.value, SourceTypeEnum.ASR_CUSTOM.value,
+                    SourceTypeEnum.LLM_CUSTOM.value)
+
+
+# 基础类别 ↔ SourceList 绑定类型映射：会话解析时两类都要查（迁移前旧绑定
+# 用 TTS/ASR/LLM，迁移后与新建绑定用 *_CUSTOM）
+_SESSION_TYPES = {
+    "tts": (SourceTypeEnum.TTS.value, SourceTypeEnum.TTS_CUSTOM.value),
+    "asr": (SourceTypeEnum.ASR.value, SourceTypeEnum.ASR_CUSTOM.value),
+    "llm": (SourceTypeEnum.LLM.value, SourceTypeEnum.LLM_CUSTOM.value),
+}
 
 
 class TenantModel(BaseModel):
@@ -84,7 +104,7 @@ class _GetTTSList2(BaseModel):
     tag: Union[str, None]
     voice: Union[str, None]
     apikey: Union[str, None]
-    additional_param: Union[dict, None]
+    params: Union[dict, None]
 
     class Config:
         from_attributes = True
@@ -131,13 +151,20 @@ async def _first_resource_id(session, model):
     return row
 
 
-async def _bind_default_sources(session, tenant_id: int) -> dict:
+async def _bind_default_sources(session, tenant_id: int, owner_user_id: int = None) -> dict:
     """给新租户把 TTS / ASR / LLM / CHATTEMPLATE 各绑第一条并置为默认。
 
     建租户时调用，省掉后台手动逐条绑定 + 设默认的操作。每类型只绑一行且
     is_default=True，与 set_source_default 维持的「每类型至多一个默认」口径一致。
     某类型资源表为空时跳过该类型（不写脏绑定），结果在 bound 中如实反映。
     与 create_tenant 共用同一 session/事务：绑定失败则租户一起回滚，不留半成品。
+
+    资源体系重构 + 严格私有的口径下，TTS/ASR/LLM 取**租户归属人自己的**个性插件
+    （CustomPlugin.owner_id == owner_user_id，且基础插件在售）。归属人名下没有
+    该类别的个性插件时跳过该类别——用户需先自建个性插件再绑（旧 Factories 行不
+    再作为普通用户的可绑口径）。owner_user_id 为空（未归属租户/admin 直建）时，
+    退化为「任一在售个性插件」保证新租户不至于完全无资源可跑。对话模板不变，
+    仍绑 Factories 表。
     """
     bound = {}
     for source_type, model in (
@@ -146,11 +173,26 @@ async def _bind_default_sources(session, tenant_id: int) -> dict:
         (SourceTypeEnum.LLM.value, LLMFactories),
         (SourceTypeEnum.CHATTEMPLATE.value, DigitalHumanChatTemplate),
     ):
-        rid = await _first_resource_id(session, model)
+        if source_type == SourceTypeEnum.CHATTEMPLATE.value:
+            rid = await _first_resource_id(session, model)
+            bind_type = source_type
+        else:
+            conds = [CustomPlugin.category == source_type,
+                     or_(CustomPlugin.is_delete.is_(None), CustomPlugin.is_delete.is_(False)),
+                     or_(BasePlugin.is_delete.is_(None), BasePlugin.is_delete.is_(False)),
+                     func.coalesce(BasePlugin.status, STATUS_ACTIVE) != STATUS_OFF_SHELF]
+            if owner_user_id is not None:
+                conds.append(CustomPlugin.owner_id == owner_user_id)
+            rid = await session.scalar(
+                select(CustomPlugin.id)
+                .join(BasePlugin, BasePlugin.id == CustomPlugin.base_plugin_id)
+                .where(*conds)
+                .order_by(CustomPlugin.id).limit(1))
+            bind_type = SourceTypeEnum.to_custom(source_type)
         if rid is None:
             LOG(f"资源表 {model.__name__} 无可用记录，租户 {tenant_id} 跳过 {source_type} 自动绑定", "WARN")
             continue
-        session.add(SourceList(tenant_id=tenant_id, type=source_type,
+        session.add(SourceList(tenant_id=tenant_id, type=bind_type,
                                reference_id=rid, is_default=True, is_delete=False))
         bound[source_type] = rid
     return bound
@@ -179,7 +221,8 @@ async def create_tenant(**kwargs):
             await session.flush()  # 先落库取回自增 id，否则返回 data.id 恒为 None
             data = {"id": new_tenant.id}
             if auto_bind:
-                data["default_sources"] = await _bind_default_sources(session, new_tenant.id)
+                data["default_sources"] = await _bind_default_sources(
+                    session, new_tenant.id, owner_user_id=kwargs.get("user_id"))
             return GeneticResponse(data=data)
 
 
@@ -256,22 +299,35 @@ async def delete_tenant(tenant_id: int):
 
 # ===================== 租户资源绑定（Tenant 添加 tts/asr/llm 等资源）=====================
 
-async def bind_source(tenant_id: int, type: str, reference_id: int):
+async def bind_source(tenant_id: int, type: str, reference_id: int,
+                      admin: bool = False, user_id: int = None):
     """把一条资源（SourceList 行）绑定到租户。
 
     同一 (type, reference_id, tenant_id) 已存在时直接返回成功（幂等），
     避免重复绑定产生脏数据。
 
-    已下架（status=off_shelf）的资源禁止新增绑定：下架的语义就是关闭增量入口，
-    存量绑定不受影响（见 mybatisPlus/shelf_orm.py）。
+    类型口径（资源体系重构后）：
+      - 普通用户（admin=False）只能绑 CHATTEMPLATE 与 *_CUSTOM（个性插件，
+        严格私有——仅自己创建的）；旧的 TTS/ASR/LLM 直绑入口对普通用户关闭。
+      - admin 保留旧类型直绑能力（存量运维兜底），新配置一律建议走个性插件。
+      - *_CUSTOM 走 custom_plugin_orm 的可用性+可见性校验（基础插件下架即不可绑）。
+      - 旧 TTS/ASR/LLM 类型保留给存量数据与内部迁移使用：已下架禁止新增绑定
+        （下架语义=关闭增量入口，存量不受影响，见 shelf_orm.py）。
     """
+    if not admin:
+        if type not in (SourceTypeEnum.CHATTEMPLATE.value,) and not _is_custom_type(type):
+            return GeneticResponse(code=400, msg="普通用户仅可绑定个性插件与对话模板")
+    if _is_custom_type(type):
+        denied = await assert_custom_bindable(type, reference_id, admin, user_id)
+        if denied:
+            return denied
     async with AsyncSessionLocal() as session:
         async with session.begin():
             tenant = await session.scalar(
                 select(Tenant).filter_by(id=tenant_id, is_delete=False))
             if not tenant:
                 return GeneticResponse(code=400, msg="租户不存在")
-            if await is_off_shelf(type, reference_id):
+            if not _is_custom_type(type) and await is_off_shelf(type, reference_id):
                 return GeneticResponse(code=400, msg="该资源已下架，不可绑定")
             exist = await session.scalar(
                 select(SourceList).filter_by(
@@ -341,6 +397,25 @@ async def list_bound_sources(tenant_id: int):
                 m[obj.id] = d
             info[stype] = m
 
+        # 个性插件（*_CUSTOM）：desc 取插件描述/名称；可用性 = 自身未删 且
+        # 基础插件存在、未删、在售——不满足即标 off_shelf（前端展示下架标签）。
+        # 运行时对这类绑定直接拒绝会话（resolve_runtime_config 返回 None）。
+        for stype, rids in ids_by_type.items():
+            if not _is_custom_type(stype) or not rids:
+                continue
+            found = await session.execute(
+                select(CustomPlugin, BasePlugin)
+                .outerjoin(BasePlugin, BasePlugin.id == CustomPlugin.base_plugin_id)
+                .where(CustomPlugin.id.in_(rids)))
+            m = {}
+            for c, base in found.all():
+                base_ok = (base is not None and not base.is_delete and
+                           (base.status or STATUS_ACTIVE) != STATUS_OFF_SHELF)
+                avail = (not c.is_delete) and base_ok
+                m[c.id] = {"desc": c.desc or c.name,
+                           "status": STATUS_ACTIVE if avail else STATUS_OFF_SHELF}
+            info[stype] = m
+
         result = []
         for s in rows:
             item = info.get(s.type, {}).get(s.reference_id, {})
@@ -352,13 +427,21 @@ async def list_bound_sources(tenant_id: int):
         return result
 
 
-async def set_source_default(tenant_id: int, type: str, reference_id: int):
+async def set_source_default(tenant_id: int, type: str, reference_id: int,
+                             admin: bool = False, user_id: int = None):
     """把租户某类型下的指定绑定设为默认。
 
     同 (tenant_id, type) 下其余绑定 is_default 归零，仅目标为 1，
-    保证每类型至多一个默认。对 TTS/ASR/LLM/CHATTEMPLATE 通用。
+    保证每类型至多一个默认。对 TTS/ASR/LLM/CHATTEMPLATE 及 *_CUSTOM 通用。
     沿用 save_default_source_config 的写法：SourceList.is_default 直接置 1。
+
+    个性插件（*_CUSTOM）用 assert_custom_bindable 校验可用性与可见性
+    （基础插件下架即不可设默认）；旧资源沿用 is_off_shelf 检查。
     """
+    if _is_custom_type(type):
+        denied = await assert_custom_bindable(type, reference_id, admin, user_id)
+        if denied:
+            return denied
     async with AsyncSessionLocal() as session:
         async with session.begin():
             rows = await session.scalars(
@@ -370,7 +453,7 @@ async def set_source_default(tenant_id: int, type: str, reference_id: int):
                 return GeneticResponse(code=400, msg="绑定关系不存在")
             # 已下架资源不可新设为默认：默认资源是终端不下发 source_config 时的兜底，
             # 不应指向一个已停止供给的资源（存量默认不在此列，管理员可继续手动改）。
-            if await is_off_shelf(type, reference_id):
+            if not _is_custom_type(type) and await is_off_shelf(type, reference_id):
                 return GeneticResponse(code=400, msg="该资源已下架，不可设为默认")
             for r in rows:
                 r.is_default = (r.id == target.id)
@@ -414,39 +497,42 @@ async def get_source_list(tenantname: str):
             )
             sources = list(sources)
 
-            llm_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.LLM.value]
-            tts_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.TTS.value]
-            asr_ids = [s.reference_id for s in sources if s.type == SourceTypeEnum.ASR.value]
-
-            llm_map = {}
-            if llm_ids:
-                llms = await session.scalars(select(LLMFactories).where(LLMFactories.id.in_(llm_ids)))
-                llm_map = {llm.id: llm for llm in llms}
-
-            tts_map = {}
-            if tts_ids:
-                ttss = await session.scalars(select(TTSFactories).where(TTSFactories.id.in_(tts_ids)))
-                tts_map = {tts.id: tts for tts in ttss}
-
-            asr_map = {}
-            if asr_ids:
-                asrs = await session.scalars(select(ASRFactories).where(ASRFactories.id.in_(asr_ids)))
-                asr_map = {asr.id: asr for asr in asrs}
+            legacy_models = {"LLM": LLMFactories, "TTS": TTSFactories, "ASR": ASRFactories}
+            legacy_maps, custom_maps = {}, {}
+            for category, model in legacy_models.items():
+                ids = [s.reference_id for s in sources
+                       if s.type == SourceTypeEnum(category).value]
+                if ids:
+                    rows = await session.scalars(select(model).where(model.id.in_(ids)))
+                    legacy_maps[category] = {r.id: r for r in rows}
+                cids = [s.reference_id for s in sources
+                        if s.type == SourceTypeEnum.to_custom(category)]
+                if cids:
+                    rows = await session.scalars(
+                        select(CustomPlugin).where(CustomPlugin.id.in_(cids)))
+                    custom_maps[category] = {r.id: r for r in rows}
 
             llm_list, tts_list, asr_list = [], [], []
+            buckets = {"LLM": llm_list, "TTS": tts_list, "ASR": asr_list}
             for s in sources:
-                if s.type == SourceTypeEnum.LLM.value:
-                    info = llm_map.get(s.reference_id)
-                    if info:
-                        llm_list.append(_GetLLMList.model_validate(info).model_dump())
-                elif s.type == SourceTypeEnum.TTS.value:
-                    info = tts_map.get(s.reference_id)
-                    if info:
-                        tts_list.append(_GetTTSList.model_validate(info).model_dump())
-                elif s.type == SourceTypeEnum.ASR.value:
-                    info = asr_map.get(s.reference_id)
-                    if info:
-                        asr_list.append(_GetASRList.model_validate(info).model_dump())
+                category = SourceTypeEnum.to_base(s.type)
+                if category not in buckets:
+                    continue
+                if _is_custom_type(s.type):
+                    c = custom_maps.get(category, {}).get(s.reference_id)
+                    # 终端资源列表口径：个性插件须自身未删且基础插件在售，否则不展示
+                    if c is None or c.is_delete:
+                        continue
+                    base = await session.scalar(select(BasePlugin).filter_by(id=c.base_plugin_id))
+                    if (not base or base.is_delete or
+                            (base.status or STATUS_ACTIVE) == STATUS_OFF_SHELF):
+                        continue
+                    buckets[category].append({"id": c.id, "type": base.name, "desc": c.desc or c.name})
+                    continue
+                info = legacy_maps.get(category, {}).get(s.reference_id)
+                if info:
+                    model_cls = {"LLM": _GetLLMList, "TTS": _GetTTSList, "ASR": _GetASRList}[category]
+                    buckets[category].append(model_cls.model_validate(info).model_dump())
 
             return {"llm": llm_list, "tts": tts_list, "asr": asr_list}
 
@@ -474,37 +560,65 @@ async def _tenant_default_source_ids(session, tenantname: str) -> dict:
     return defaults
 
 
+async def _resolve_session_config(session, category: str, defaults: dict, given_id):
+    """解析单类别（TTS/ASR/LLM）的会话配置，返回与 _Get*List2 同形的 dict。
+
+    取值优先级：客户端 source_config 显式指定的 id > 租户默认绑定 > id=1 兜底。
+    id 落在个性插件还是旧 Factories 的判定：先按 CustomPlugin 查（类别匹配即为
+    个性插件）——
+      - 是个性插件：resolve_runtime_config 返回可用配置；若其自身已删或基础插件
+        已删/已下架则抛 PluginUnavailableError（严格全面禁用，不做 id=1 兜底，
+        由 websocket 建链处拒绝会话）。
+      - 不是个性插件：走旧 Factories 行；资源已被删除时回落 id=1（历史兼容，
+        原行为不变）。
+    given_id 与默认绑定 id 都可能是两类 id；默认绑定优先按其自身 type 判定。
+    """
+    custom_type = SourceTypeEnum.to_custom(category)
+    model = {"TTS": TTSFactories, "ASR": ASRFactories, "LLM": LLMFactories}[category]
+
+    default_id = defaults.get(custom_type) or defaults.get(category)
+    rid = given_id or default_id or 1
+
+    async def _load_legacy(legacy_id):
+        row = await session.scalar(select(model).filter_by(id=legacy_id))
+        if row is None and legacy_id != 1:
+            LOG(f"租户默认资源 {model.__name__}#{legacy_id} 不存在，回落 id=1", "WARN")
+            row = await session.scalar(select(model).filter_by(id=1))
+        if row is None:
+            raise PluginUnavailableError(f"{category} 资源表无可用记录（id={legacy_id}）")
+        cfg = {c.name: getattr(row, c.name, None) for c in model.__table__.columns}
+        cfg["status"] = cfg.get("status") or STATUS_ACTIVE
+        return cfg
+
+    # id 归属判定：命中 CustomPlugin（类别匹配，不过滤 is_delete——已删的个性
+    # 插件必须报错而不是误落旧表同号资源）即按个性插件解析；否则走旧 Factories。
+    hit_custom = await session.scalar(
+        select(CustomPlugin.id).where(CustomPlugin.id == rid,
+                                      CustomPlugin.category == category))
+    if hit_custom is not None:
+        return await resolve_runtime_config(session, custom_type, rid)
+    return await _load_legacy(rid)
+
+
 async def get_source_config(**kwargs):
     """解析一次会话实际使用的 LLM / TTS / ASR / 对话模板。
 
     取值优先级：客户端 source_config 显式指定的 id > 租户在 SourceList 中的默认绑定
     > id=1 兜底。最后一级只为兼容从未配置过默认资源的历史终端，避免直接中断会话。
+
+    个性插件（*_CUSTOM 绑定或个性插件 id）走 resolve_runtime_config；
+    基础插件下架/注销时抛 PluginUnavailableError，调用方（websocket）拒绝会话。
     """
     async with AsyncSessionLocal() as session:
         async with session.begin():
             defaults = await _tenant_default_source_ids(session, kwargs.get("uid"))
 
-            def _resolve(id_key: str, source_type: str) -> int:
-                given = kwargs.get(id_key)
-                if given:
-                    return given
-                return defaults.get(source_type) or 1
-
-            tts_id = _resolve("tts_id", SourceTypeEnum.TTS.value)
-            asr_id = _resolve("asr_id", SourceTypeEnum.ASR.value)
-            llm_id = _resolve("llm_id", SourceTypeEnum.LLM.value)
-
-            async def _load(model, rid):
-                """按 id 取资源行；绑定的资源已被删除时回落 id=1，避免 validate(None) 抛错。"""
-                row = await session.scalar(select(model).filter_by(id=rid))
-                if row is None and rid != 1:
-                    LOG(f"租户 {kwargs.get('uid')} 的默认资源 {model.__name__}#{rid} 不存在，回落 id=1", "WARN")
-                    row = await session.scalar(select(model).filter_by(id=1))
-                return row
-
-            tts_config = await _load(TTSFactories, tts_id)
-            asr_config = await _load(ASRFactories, asr_id)
-            llm_config = await _load(LLMFactories, llm_id)
+            tts_config = await _resolve_session_config(
+                session, "TTS", defaults, kwargs.get("tts_id"))
+            asr_config = await _resolve_session_config(
+                session, "ASR", defaults, kwargs.get("asr_id"))
+            llm_config = await _resolve_session_config(
+                session, "LLM", defaults, kwargs.get("llm_id"))
             stmt = (
                 select(DigitalHumanChatTemplate)
                 .join(SourceList, SourceList.reference_id == DigitalHumanChatTemplate.id)
@@ -543,20 +657,30 @@ async def get_default_source_config(tenantname: str):
             sources = await session.scalars(
                 select(SourceList).filter_by(tenant_id=tenant.id, is_default=True)
             )
-            llm_config = tts_config = asr_config = None
+            result = {"llm_config": None, "tts_config": None, "asr_config": None}
+            legacy_models = {"LLM": LLMFactories, "TTS": TTSFactories, "ASR": ASRFactories}
             for s in sources:
-                if s.type == SourceTypeEnum.LLM.value:
-                    llm_config = await session.scalar(select(LLMFactories).filter_by(id=s.reference_id))
-                elif s.type == SourceTypeEnum.TTS.value:
-                    tts_config = await session.scalar(select(TTSFactories).filter_by(id=s.reference_id))
-                elif s.type == SourceTypeEnum.ASR.value:
-                    asr_config = await session.scalar(select(ASRFactories).filter_by(id=s.reference_id))
-
-            return {
-                "llm_config": _GetLLMList.model_validate(llm_config).model_dump() if llm_config else None,
-                "tts_config": _GetTTSList.model_validate(tts_config).model_dump() if tts_config else None,
-                "asr_config": _GetASRList.model_validate(asr_config).model_dump() if asr_config else None,
-            }
+                category = SourceTypeEnum.to_base(s.type)
+                if category not in legacy_models:
+                    continue
+                slot = f"{category.lower()}_config"
+                if _is_custom_type(s.type):
+                    # 个性插件默认：不可用（下架/删除）时如实返回 None，
+                    # 终端据此提示更换资源，不会拿到旧数据继续跑
+                    try:
+                        cfg = await resolve_runtime_config(session, s.type, s.reference_id)
+                    except PluginUnavailableError:
+                        cfg = None
+                    result[slot] = cfg
+                else:
+                    row = await session.scalar(
+                        select(legacy_models[category]).filter_by(id=s.reference_id))
+                    result[slot] = (_GetLLMList.model_validate(row).model_dump()
+                                    if category == "LLM" and row else
+                                    _GetTTSList.model_validate(row).model_dump()
+                                    if category == "TTS" and row else
+                                    _GetASRList.model_validate(row).model_dump() if row else None)
+            return result
 
 
 async def save_default_source_config(**kwargs):
@@ -570,17 +694,26 @@ async def save_default_source_config(**kwargs):
             sources = await session.scalars(
                 select(SourceList).filter_by(tenant_id=tenant.id, is_default=True)
             )
+            session_types = {SourceTypeEnum.LLM.value, SourceTypeEnum.TTS.value, SourceTypeEnum.ASR.value,
+                             SourceTypeEnum.LLM_CUSTOM.value, SourceTypeEnum.TTS_CUSTOM.value,
+                             SourceTypeEnum.ASR_CUSTOM.value}
             for s in sources:
-                if s.type in (SourceTypeEnum.LLM.value, SourceTypeEnum.TTS.value, SourceTypeEnum.ASR.value):
+                if s.type in session_types:
                     s.is_default = False
                     session.add(s)
             for _type, id_key in ((SourceTypeEnum.LLM.value, "llm_id"),
                                   (SourceTypeEnum.TTS.value, "tts_id"),
                                   (SourceTypeEnum.ASR.value, "asr_id")):
+                rid = kwargs.get(id_key)
+                if rid is None:
+                    continue
+                # 迁移后租户的绑定行是 *_CUSTOM；旧终端仍按旧类型名传 id。
+                # 两种 type 都找一遍，命中哪个设哪个为默认。
                 source = await session.scalar(
-                    select(SourceList).filter_by(
-                        tenant_id=tenant.id, type=_type, reference_id=kwargs.get(id_key))
-                )
+                    select(SourceList).where(
+                        SourceList.tenant_id == tenant.id,
+                        SourceList.reference_id == rid,
+                        SourceList.type.in_((_type, SourceTypeEnum.to_custom(_type)))))
                 if source:
                     source.is_default = 1
                     session.add(source)

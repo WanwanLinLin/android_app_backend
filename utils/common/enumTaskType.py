@@ -2,6 +2,13 @@
 from enum import Enum
 
 
+# 基础插件类别 ↔ 个性插件绑定类型的映射。
+# 注意：映射必须放模块级——Enum 类体内直接赋值的 dict 会被 Python 吸收成
+# 枚举成员（cls.CUSTOM_OF 变成 member 而非 dict），.get 直接 AttributeError。
+_CUSTOM_OF = {"TTS": "TTS_CUSTOM", "ASR": "ASR_CUSTOM", "LLM": "LLM_CUSTOM"}
+_BASE_OF = {"TTS_CUSTOM": "TTS", "ASR_CUSTOM": "ASR", "LLM_CUSTOM": "LLM"}
+
+
 class SourceTypeEnum(Enum):
     TTS = "TTS"
     LLM = "LLM"
@@ -9,7 +16,24 @@ class SourceTypeEnum(Enum):
     FIGURE = "FIGURE"
     BACKGROUND = "BACKGROUND"
     CHATTEMPLATE = "CHATTEMPLATE"
-    
+    # 个性插件绑定类型（SourceList.type 新取值，指向 CustomPlugin 表）。
+    # 旧取值 TTS/ASR/LLM 仍有效——指向三张 Factories 表的存量绑定，
+    # 迁移脚本执行后 SourceList 中不再出现旧取值。
+    TTS_CUSTOM = "TTS_CUSTOM"
+    ASR_CUSTOM = "ASR_CUSTOM"
+    LLM_CUSTOM = "LLM_CUSTOM"
+
+    @classmethod
+    def to_custom(cls, base_type: str):
+        """TTS/ASR/LLM → 对应的 *_CUSTOM；非基础类别原样返回。"""
+        return _CUSTOM_OF.get(base_type, base_type)
+
+    @classmethod
+    def to_base(cls, custom_type: str):
+        """*_CUSTOM → 对应的基础类别；非 custom 取值原样返回。"""
+        return _BASE_OF.get(custom_type, custom_type)
+
+
     
 # Websocket 服务端事件
 class WebsocketServerEvent(Enum):

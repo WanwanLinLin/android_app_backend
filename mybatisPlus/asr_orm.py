@@ -93,14 +93,14 @@ async def get_one_asr(id: int):
 
 
 async def update_one_asr(id: int, **kwargs):
+    """更新语音识别模型。2026-10-22 起旧资源池仅开放 params 编辑（其余字段随旧池下线锁定）。"""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             asr = await session.scalar(select(ASRFactories).filter_by(id=id))
             if not asr:
                 return GeneticResponse(code=400, msg="data not exist")
-            for k in ("type", "url", "desc", "apikey", "params"):
-                if kwargs.get(k, None) is not None:
-                    setattr(asr, k, kwargs.get(k))
+            if kwargs.get("params", None) is not None:
+                asr.params = kwargs.get("params")
             session.add(asr)
             return GeneticResponse()
 
