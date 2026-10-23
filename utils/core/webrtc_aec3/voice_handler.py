@@ -23,7 +23,6 @@ import opuslib_next
 from copy import deepcopy
 from collections import OrderedDict, deque
 from pydub import AudioSegment
-from pyaec3.api.PyAec3Lib import PyAec3
 from fireredvad import FireRedVadCpp
 from collections import deque, OrderedDict
 from fastapi import WebSocket, WebSocketDisconnect
@@ -78,7 +77,6 @@ class ConnectionObjectCustomAec3:
         self.frame_size = 320
         self.global_config = {}
         self.is_active = True
-        self.chat_mode = ""
 
         # asr
         self.all_cache = {}
@@ -110,10 +108,6 @@ class ConnectionObjectCustomAec3:
         self.opus_decoder = opuslib_next.Decoder(16000, 1)
         self.opus_encoder = opuslib_next.Encoder(16000, 1, opuslib_next.APPLICATION_AUDIO)
 
-        # aec config
-        self.pa = PyAec3()
-        self.aec3_data_queue = Queue()
-
         # ---- NEW: far-end reference buffer for aligned AEC ----
         # Maps send_seq -> raw audio bytes (the far-end reference)
         self.far_end_buffer = OrderedDict()
@@ -124,9 +118,7 @@ class ConnectionObjectCustomAec3:
         # ---- NEW: framed protocol state ----
         self.use_framed_protocol = False  # auto-detected on first packet
         self.framed_partial = b""  # leftover bytes for framed parsing
-        # self.aec3_data_queue = Queue()
-        # self.delay_time = time.time() * 1000
-        
+
         # llm and tts and asr
         self.llm_queue = Queue()
         self.tts_data_queue = Queue()
@@ -235,19 +227,9 @@ async def webrtc_aec3(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
 
                     # if far_end_audio is not None:
                     if 1:
-                        if (not conn.aec3_data_queue.empty()) and conn.chat_mode == "aec":
-                            a = conn.aec3_data_queue.get()
-                            chunk1 = np.frombuffer(a, dtype=np.int16)
-                            chunk2 = np.frombuffer(_client_chunk, dtype=np.int16)
-                            aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
-                        else:
-                            aec3_res = _client_chunk
-                            
-                        # client_chunk = _client_chunk
-                        
-                        # aec3_res = _client_chunk
-
-                        # aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)
+                        # 服务端 AEC（pyaec3）已移除：回声消除由客户端完成，
+                        # 麦克风原始帧直接进 VAD
+                        aec3_res = _client_chunk
                         chunk3 = np.frombuffer(aec3_res, dtype=np.int16)
                         vad_res = conn.frv.process_stream(chunk3, 160)
 

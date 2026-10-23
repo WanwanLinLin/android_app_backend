@@ -1,0 +1,5 @@
+# 代码不打进镜像（运行时挂载），构建上下文只保留依赖清单与入口脚本
+*
+!requirements.txt
+!Dockerfile
+!docker-entrypoint.sh

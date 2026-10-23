@@ -125,8 +125,6 @@ class TTSProvider(TTSProviderBase):
                     break
 
                 conn.tts_data_queue.put(data1)
-                # conn.aec3_data_queue.put(data1[:320])
-                # conn.aec3_data_queue.put(data1[320:])
 
             await reader.close()
             return 1

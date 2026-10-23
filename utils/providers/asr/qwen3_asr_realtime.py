@@ -35,8 +35,7 @@ class ASRProvider(ASRProviderBase):
         self.mode = "stream"
         self.qwen3_asr_websocket = None
         self.params = config.get("params")
-        self.use_server_aec = config.get("params").get("use_server_aec", None)
-        
+
     async def initialize(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
             # 对于 websockets >= 14.0，使用 additional_headers
@@ -73,14 +72,8 @@ class ASRProvider(ASRProviderBase):
                     else:
                         pcm_frame = item
                     
-                    # if not conn.aec3_data_queue.empty() and self.use_server_aec and conn.chat_mode == "aec":
-                    #     a = conn.aec3_data_queue.get()
-                    #     chunk1 = np.frombuffer(a, dtype=np.int16)
-                    #     chunk2 = np.frombuffer(pcm_frame, dtype=np.int16)
-                    #     aec3_res = conn.pa.aecProcess(chunk1, chunk2, 160, 16000, 320)   
-                    # else:
-                    if 1:
-                        aec3_res =  pcm_frame
+                    # 服务端 AEC（pyaec3）已移除：麦克风帧直接进入后续识别
+                    aec3_res = pcm_frame
                     
                     await self.qwen3_asr_websocket.send(aec3_res)
                     # await self.qwen3_asr_websocket.send(pcm_frame)

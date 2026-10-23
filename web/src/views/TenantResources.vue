@@ -166,8 +166,9 @@ const TYPES = [
   { value: 'LLM', label: 'LLM 大模型', color: '#8b5cf6', icon: MagicStick },
   { value: 'CHATTEMPLATE', label: '对话模板', color: '#14b8a6', icon: Document }
 ]
-const iconOf = (t) => (TYPES.find((x) => x.value === t) || {}).icon || Box
-const colorOf = (t) => (TYPES.find((x) => x.value === t) || {}).color || '#909399'
+// 个性插件绑定（*_CUSTOM）按基础类别取图标与配色，避免回退成灰色 Box
+const iconOf = (t) => (TYPES.find((x) => x.value === baseTypeOf(t)) || {}).icon || Box
+const colorOf = (t) => (TYPES.find((x) => x.value === baseTypeOf(t)) || {}).color || '#909399'
 const typeLabel = (t) => {
   if (t === 'TTS_CUSTOM') return 'TTS 个性插件'
   if (t === 'ASR_CUSTOM') return 'ASR 个性插件'
