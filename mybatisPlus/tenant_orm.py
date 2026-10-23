@@ -648,6 +648,22 @@ async def get_source_config(**kwargs):
             }
 
 
+def _terminal_safe_config(cfg: dict) -> dict:
+    """安卓终端兼容（2026-10-23）：getDefaultSourceConfig 的返回值直接进旧终端
+    （App 源码不动），其 UI 绑定按非空字符串解析 desc、按对象解析 params。
+    个性插件允许 desc 留空，这里统一兜底：desc=None → 插件名（无名时空串）、
+    params=None → {}。键集合保持 _Get*List2 原样，不增不减。
+    """
+    if cfg is None:
+        return cfg
+    if cfg.get("desc") is None:
+        cfg["desc"] = cfg.get("name") or ""
+    if cfg.get("params") is None:
+        cfg["params"] = {}
+    cfg.pop("name", None)  # 键集与旧接口严格一致（name 仅内部兜底用）
+    return cfg
+
+
 async def get_default_source_config(tenantname: str):
     async with AsyncSessionLocal() as session:
         async with session.begin():
@@ -655,7 +671,9 @@ async def get_default_source_config(tenantname: str):
             if not tenant:
                 return None
             sources = await session.scalars(
-                select(SourceList).filter_by(tenant_id=tenant.id, is_default=True)
+                select(SourceList).filter_by(tenant_id=tenant.id, is_default=True).where(
+                    or_(SourceList.is_delete.is_(None), SourceList.is_delete.is_(False)))
+                .order_by(SourceList.id)
             )
             result = {"llm_config": None, "tts_config": None, "asr_config": None}
             legacy_models = {"LLM": LLMFactories, "TTS": TTSFactories, "ASR": ASRFactories}
@@ -671,15 +689,16 @@ async def get_default_source_config(tenantname: str):
                         cfg = await resolve_runtime_config(session, s.type, s.reference_id)
                     except PluginUnavailableError:
                         cfg = None
-                    result[slot] = cfg
+                    result[slot] = _terminal_safe_config(cfg)
                 else:
                     row = await session.scalar(
                         select(legacy_models[category]).filter_by(id=s.reference_id))
-                    result[slot] = (_GetLLMList.model_validate(row).model_dump()
-                                    if category == "LLM" and row else
-                                    _GetTTSList.model_validate(row).model_dump()
-                                    if category == "TTS" and row else
-                                    _GetASRList.model_validate(row).model_dump() if row else None)
+                    result[slot] = _terminal_safe_config(
+                        (_GetLLMList.model_validate(row).model_dump()
+                         if category == "LLM" and row else
+                         _GetTTSList.model_validate(row).model_dump()
+                         if category == "TTS" and row else
+                         _GetASRList.model_validate(row).model_dump() if row else None))
             return result
 
 

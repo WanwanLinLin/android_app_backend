@@ -149,6 +149,7 @@ async def resolve_runtime_config(session, custom_type: str, reference_id: int):
         cfg["tag"] = base.name
     cfg["id"] = c.id
     cfg["desc"] = c.desc
+    cfg["name"] = c.name  # 供终端兼容层 desc 为空时兜底（_Get*List2 序列化会过滤掉）
     # 键位补齐：与 Factories 行同形（_Get*List2 的键），provider 按 get 取值不踩空
     for k in ("url", "apikey", "params", "voice", "tag"):
         cfg.setdefault(k, None)
