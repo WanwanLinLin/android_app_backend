@@ -35,18 +35,22 @@ async def _get_custom_plugin(id: int, admin: dict = Depends(current_admin)):
 @router.post("/v1/customPlugin/add", summary="创建个性插件", tags=["通用接口"])
 async def _add_custom_plugin(info: schema.AddCustomPluginModel,
                              admin: dict = Depends(current_admin)):
-    """config 为完整自带配置；type/tag 由后端按基础插件名强制写入，用户不可指定。
+    """config 为完整自带配置，保存时按类别模板校验必含键（TTS: url|tag|voice|apikey|params，
+    ASR/LLM: url|apikey|params）。type 由后端按基础插件名强制写入；TTS 的 tag 可指定，
+    但必须是登记在册且在售的 TTS 基础插件名（缺省用基础插件名）。
     个性插件严格私有，恒归创建者本人（platform_owned 已废弃并忽略）。"""
     payload = info.model_dump(exclude_none=True)
     payload.pop("platform_owned", None)  # 已废弃：不再有平台归属插件
     return await create_custom_plugin(is_admin(admin), admin["id"], **payload)
 
 
-@router.post("/v1/customPlugin/update/{id}", summary="更新个性插件（仅创建者，仅 params）", tags=["通用接口"])
+@router.post("/v1/customPlugin/update/{id}", summary="更新个性插件（仅创建者，完整 config）", tags=["通用接口"])
 async def _update_custom_plugin(id: int, info: schema.UpdateCustomPluginModel,
                                 admin: dict = Depends(current_admin)):
-    """2026-10-22 起仅支持修改 config.params，其余字段（名称/描述/url/apikey/voice 等）锁定。"""
-    return await update_custom_plugin(id, is_admin(admin), admin["id"], params=info.params)
+    """2026-10-22 起整个 config 可编辑（url/apikey/voice/params 等），保存时按类别
+    模板校验必含键：TTS 需 url|tag|voice|apikey|params，ASR/LLM 需 url|apikey|params。
+    type/tag 的运行目标约束与名称/归属锁定规则见 custom_plugin_orm。"""
+    return await update_custom_plugin(id, is_admin(admin), admin["id"], config=info.config)
 
 
 @router.post("/v1/customPlugin/delete/{id}", summary="删除个性插件（仅创建者）", tags=["通用接口"])

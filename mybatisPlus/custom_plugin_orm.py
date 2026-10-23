@@ -28,6 +28,33 @@ def _alive(m):
     return or_(m.is_delete.is_(None), m.is_delete.is_(False))
 
 
+# 个性插件 config 必含键模板（2026-10-22 起编辑/创建保存时的校验依据）：
+#   TTS: url | tag | voice | apikey | params
+#   ASR / LLM: url | apikey | params
+# 允许多余键（provider 私有参数）；键值允许为 null（如 params 无附加参数），
+# 但键本身必须存在。type 为运行时 import 目标，由基础插件名强制写入，
+# 不属于用户可编辑键，故不在模板内。
+CONFIG_TEMPLATE = {
+    "TTS": ("url", "tag", "voice", "apikey", "params"),
+    "ASR": ("url", "apikey", "params"),
+    "LLM": ("url", "apikey", "params"),
+}
+
+
+def validate_config_template(category: str, config: dict):
+    """按类别模板校验 config：返回 None=通过，否则返回缺失键的提示文案。"""
+    required = CONFIG_TEMPLATE.get(category)
+    if required is None:
+        return None
+    if not isinstance(config, dict):
+        return "config 必须是 JSON 对象"
+    missing = [k for k in required if k not in config]
+    if missing:
+        return (f"{category} 个性插件配置缺少必含参数：{' | '.join(missing)}"
+                f"（模板要求：{' | '.join(required)}）")
+    return None
+
+
 def _base_alive_cond():
     """「所属基础插件未删除」的 where 条件（在售条件另行叠加，见列表函数）。"""
     return or_(BasePlugin.is_delete.is_(None), BasePlugin.is_delete.is_(False))
@@ -112,11 +139,13 @@ async def resolve_runtime_config(session, custom_type: str, reference_id: int):
     if (base.status or STATUS_ACTIVE) == STATUS_OFF_SHELF:
         raise PluginUnavailableError(
             f"个性插件 #{reference_id}（{c.name}）的基础插件 {base.name} 已下架")
-    # config 自带完整配置；type/tag 以基础插件名为准（importlib 目标文件），
-    # 防止用户改 config 里的 type 指向任意模块
+    # config 自带完整配置；type 恒以基础插件名为准（importlib 目标文件），
+    # 防止用户改 config 里的 type 指向任意模块。
+    # TTS 的 tag（真正的 import 目标）2026-10-22 起允许用户编辑，但保存时已校验
+    # 必须是登记在册且在售的 TTS 基础插件名；缺省时回落基础插件名。
     cfg = dict(c.config or {})
     cfg["type"] = base.name
-    if category == "TTS":
+    if category == "TTS" and not cfg.get("tag"):
         cfg["tag"] = base.name
     cfg["id"] = c.id
     cfg["desc"] = c.desc
@@ -154,12 +183,26 @@ async def assert_custom_bindable(custom_type: str, reference_id: int, admin: boo
     return None
 
 
+async def _valid_tts_tag(session, tag) -> bool:
+    """TTS 的 tag 是运行时 import 目标：必须是已登记、未删除且在售的 TTS 基础插件名。"""
+    if not isinstance(tag, str) or not tag.strip():
+        return False
+    hit = await session.scalar(
+        select(BasePlugin.id)
+        .where(BasePlugin.category == "TTS", BasePlugin.name == tag.strip(),
+               _alive(BasePlugin),
+               func.coalesce(BasePlugin.status, STATUS_ACTIVE) != STATUS_OFF_SHELF))
+    return hit is not None
+
+
 async def create_custom_plugin(admin: bool, user_id: int, **kwargs):
     """创建个性插件（所有登录用户）。严格私有：owner_id 恒为创建者本人。
 
     - base_plugin_id 必须指向一个存在、未删除且在售的基础插件；
-    - config 为完整自带配置，创建时写入 type/tag = 基础插件名（运行时 import 目标），
-      用户传入的 config 不允许覆盖 type/tag；
+    - config 为完整自带配置，按 CONFIG_TEMPLATE 校验必含键
+      （TTS: url|tag|voice|apikey|params；ASR/LLM: url|apikey|params）；
+    - type 恒为基础插件名（importlib 目标，用户不可指定）；TTS 的 tag 缺省
+      写基础插件名，用户显式指定时必须是登记在册且在售的 TTS 基础插件名；
     - 不再有"平台归属/共享"插件（platform_owned 已废弃，忽略该入参）。
     """
     base_id = kwargs.get("base_plugin_id")
@@ -178,9 +221,18 @@ async def create_custom_plugin(admin: bool, user_id: int, **kwargs):
                 return GeneticResponse(code=400, msg="基础插件已下架，不可基于它创建个性插件")
             cfg = dict(config)
             cfg.pop("id", None)
-            cfg["type"] = base.name
             if base.category == "TTS":
-                cfg["tag"] = base.name
+                user_tag = cfg.get("tag")
+                if user_tag in (None, ""):
+                    cfg["tag"] = base.name
+                elif not await _valid_tts_tag(session, user_tag):
+                    return GeneticResponse(
+                        code=400,
+                        msg=f"tag「{user_tag}」不是登记在册且在售的 TTS 基础插件，不可作为运行目标")
+            err = validate_config_template(base.category, cfg)
+            if err:
+                return GeneticResponse(code=400, msg=err)
+            cfg["type"] = base.name
             plugin = CustomPlugin(name=name, category=base.category, base_plugin_id=base.id,
                                   desc=kwargs.get("desc"), config=cfg,
                                   owner_id=user_id, is_delete=False)
@@ -190,20 +242,24 @@ async def create_custom_plugin(admin: bool, user_id: int, **kwargs):
 
 
 async def update_custom_plugin(id: int, admin: bool, user_id: int, **kwargs):
-    """更新个性插件（仅 config.params）。
+    """更新个性插件（整个 config 可编辑）。
 
     严格私有：**只有创建者本人**（owner_id==自己）能改；别人的插件（含 admin）
     一律不能代改。
 
-    编辑面收窄为**仅 config.params**：名称、描述、基础插件归属、url/apikey/voice
-    等接入参数全部锁定（属基础插件 default_config 范畴，开放会让基础插件失去治理
-    意义）。kwargs 中的 name/desc/config 一律忽略。
+    2026-10-22 起编辑面为**完整 config**（url/apikey/voice/params 等均可改），
+    保存时按 CONFIG_TEMPLATE 做模板校验：
+      - TTS 必含 url | tag | voice | apikey | params；ASR / LLM 必含 url | apikey | params；
+      - TTS 的 tag 是运行时 import 目标，必须是登记在册且在售的 TTS 基础插件名；
+      - type 恒为基础插件名（防注入任意模块），用户传入的 type 会被覆盖；
+      - 允许多余键（provider 私有参数）；键值允许为 null，但键必须存在。
+    kwargs 中的 name/desc/base_plugin_id 忽略（名称与归属不可改）。
     """
-    params = kwargs.get("params")
-    if params is None:
-        return GeneticResponse(code=400, msg="请提供要修改的 params（JSON 对象）")
-    if not isinstance(params, dict):
-        return GeneticResponse(code=400, msg="params 必须是 JSON 对象")
+    config = kwargs.get("config")
+    if config is None:
+        return GeneticResponse(code=400, msg="请提供要修改的 config（JSON 对象）")
+    if not isinstance(config, dict):
+        return GeneticResponse(code=400, msg="config 必须是 JSON 对象")
     async with AsyncSessionLocal() as session:
         async with session.begin():
             c = await session.scalar(select(CustomPlugin).filter_by(id=id))
@@ -211,8 +267,22 @@ async def update_custom_plugin(id: int, admin: bool, user_id: int, **kwargs):
                 return GeneticResponse(code=400, msg="data not exist")
             if c.owner_id != user_id:
                 return GeneticResponse(code=403, msg="只能修改自己创建的个性插件")
-            cfg = dict(c.config or {})
-            cfg["params"] = params
+            cfg = dict(config)
+            cfg.pop("id", None)
+            if c.category == "TTS":
+                user_tag = cfg.get("tag")
+                if user_tag in (None, ""):
+                    base = await session.scalar(select(BasePlugin).filter_by(id=c.base_plugin_id))
+                    cfg["tag"] = base.name if base else None
+                elif not await _valid_tts_tag(session, user_tag):
+                    return GeneticResponse(
+                        code=400,
+                        msg=f"tag「{user_tag}」不是登记在册且在售的 TTS 基础插件，不可作为运行目标")
+            err = validate_config_template(c.category, cfg)
+            if err:
+                return GeneticResponse(code=400, msg=err)
+            base = await session.scalar(select(BasePlugin).filter_by(id=c.base_plugin_id))
+            cfg["type"] = base.name if base else cfg.get("type")
             c.config = cfg  # JSON 列整体替换，确保 SQLAlchemy 感知变更
             session.add(c)
             return GeneticResponse()

@@ -13,6 +13,7 @@ class AddCustomPluginModel(BaseModel):
 
 
 class UpdateCustomPluginModel(BaseModel):
-    # 2026-10-22 起编辑仅开放 params：名称/描述/基础插件/url/apikey/voice 等
-    # 全部锁定（url 等由基础插件 default_config 决定，改它们会让基础插件失去意义）
-    params: Union[Dict, None] = None
+    # 2026-10-22 起放开整个 config 编辑（url/apikey/voice/params 等均可修改），
+    # 保存时后端按类别模板校验必含键（见 custom_plugin_orm.CONFIG_TEMPLATE）；
+    # type/tag 仍由基础插件名强制覆盖，不允许用户改指向其它 provider 模块。
+    config: Union[Dict, None] = None

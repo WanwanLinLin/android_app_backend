@@ -92,20 +92,14 @@
         <el-form-item v-if="editing" label="基础插件">
           <span class="mono">{{ editing.base_plugin_name }}</span>
         </el-form-item>
-        <el-form-item v-if="editing" label="接入参数">
-          <span class="mono field-locked">{{ lockedSummary }}</span>
-          <div class="field-hint">url / apikey / voice 等接入参数由基础插件决定，创建后不可修改</div>
-        </el-form-item>
-        <!-- 新建：完整配置 JSON；编辑：仅 params 可改（基础插件治理约束） -->
-        <el-form-item v-if="!editing" label="完整配置(JSON)" prop="config" :rules="[{ required: true, message: '配置不能为空', trigger: 'blur' }]">
+        <!-- 新建 / 编辑：完整配置 JSON（保存时后端按类别模板校验必含键） -->
+        <el-form-item label="完整配置(JSON)" prop="config" :rules="[{ required: true, message: '配置不能为空', trigger: 'blur' }]">
           <JsonEditor v-model="form.config" :reset-value="jsonReset.config || ''" />
           <div class="field-hint">
-            type / tag 由基础插件决定，无需填写；其余键按插件要求填 url、apikey、params 等
+            必含参数：<span class="mono">{{ templateKeys }}</span>
+            <template v-if="category === 'TTS'">；tag 须为登记在册且在售的 TTS 基础插件名（缺省用基础插件名）</template>
+            <template v-else>；type 由基础插件强制，无需填写</template>
           </div>
-        </el-form-item>
-        <el-form-item v-if="editing" label="附加参数(params)" prop="params">
-          <JsonEditor v-model="form.params" :reset-value="jsonReset.params || ''" />
-          <div class="field-hint">编辑个性插件时仅 params 可修改，其它字段随基础插件固定</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -202,29 +196,39 @@ const formVisible = ref(false)
 const formRef = ref()
 const submitting = ref(false)
 const editing = ref(null)
-const form = reactive({ name: '', desc: '', base_plugin_id: null, config: '', params: '' })
-const jsonReset = reactive({ config: '', params: '' })
+const form = reactive({ name: '', desc: '', base_plugin_id: null, config: '' })
+const jsonReset = reactive({ config: '' })
 
-// 编辑态：非 params 的接入参数（url/apikey/voice/type/tag 等）只展示键名锁定，
-// 不展示原值（可能含密钥），也不允许修改
-const lockedSummary = computed(() => {
-  const cfg = editing.value && editing.value.config ? editing.value.config : {}
-  const keys = Object.keys(cfg).filter((k) => k !== 'params' && cfg[k] !== null && cfg[k] !== undefined)
-  return keys.length ? keys.join(' / ') : '（无）'
-})
+// 各类别个性插件 config 必含键模板（与后端 CONFIG_TEMPLATE 同口径，仅提示用途，
+// 权威校验在后端保存时执行）
+const CONFIG_TEMPLATES = {
+  TTS: ['url', 'tag', 'voice', 'apikey', 'params'],
+  ASR: ['url', 'apikey', 'params'],
+  LLM: ['url', 'apikey', 'params'],
+}
+const templateKeys = computed(() => (CONFIG_TEMPLATES[category.value] || []).join(' | '))
 
 function openAdd() {
   editing.value = null
   form.name = ''; form.desc = ''; form.base_plugin_id = null
-  form.config = '{}'; form.params = ''
+  form.config = '{}'
   jsonReset.config = '{}'
   formVisible.value = true
 }
 
-// 切换基础插件时，用其默认参数模板预填 config
+// 切换基础插件时，用其默认参数模板预填 config；
+// 基础插件无模板时按类别必含键预填空骨架（type 由后端强制，不预填）
 function onBaseChange(id) {
   const b = bases.value.find((x) => x.id === id)
-  const tpl = b && b.default_config ? JSON.stringify(b.default_config, null, 2) : '{}'
+  let tpl
+  if (b && b.default_config && Object.keys(b.default_config).length) {
+    tpl = JSON.stringify(b.default_config, null, 2)
+  } else {
+    const keys = CONFIG_TEMPLATES[category.value] || []
+    const obj = {}
+    keys.forEach((k) => { obj[k] = k === 'params' ? {} : '' })
+    tpl = JSON.stringify(obj, null, 2)
+  }
   form.config = tpl
   jsonReset.config = tpl
 }
@@ -233,28 +237,38 @@ function openEdit(row) {
   editing.value = row
   form.name = row.name
   form.desc = row.desc || ''
-  // 编辑仅开放 params；其余键在 config 中保持原样，提交时不传
-  const p = (row.config && row.config.params) || {}
-  form.params = JSON.stringify(p, null, 2)
-  jsonReset.params = form.params
+  // 编辑开放完整 config；type / id 由后端强制生成，从编辑器中剔除避免误导
+  const cfg = { ...(row.config || {}) }
+  delete cfg.type
+  delete cfg.id
+  form.config = JSON.stringify(cfg, null, 2)
+  jsonReset.config = form.config
   formVisible.value = true
+}
+
+// 保存前的本地模板校验（与后端 CONFIG_TEMPLATE 同口径，双保险）
+function checkTemplate(config) {
+  const keys = CONFIG_TEMPLATES[category.value] || []
+  const missing = keys.filter((k) => !(k in config))
+  if (missing.length) {
+    ElMessage.error(`配置缺少必含参数：${missing.join(' | ')}（模板要求：${keys.join(' | ')}）`)
+    return false
+  }
+  return true
 }
 
 async function submitForm() {
   await formRef.value.validate().catch(() => { throw new Error('请检查必填项') })
   submitting.value = true
   try {
+    let config
+    try { config = JSON.parse(form.config || '{}') }
+    catch (e) { ElMessage.error('配置不是合法 JSON'); return }
+    if (!checkTemplate(config)) return
     if (editing.value) {
-      // 编辑仅提交 params，其余字段后端不接收
-      let params
-      try { params = JSON.parse(form.params || '{}') }
-      catch (e) { ElMessage.error('params 不是合法 JSON'); return }
-      await customPluginUpdate(editing.value.id, { params })
+      await customPluginUpdate(editing.value.id, { config })
       ElMessage.success('更新成功')
     } else {
-      let config
-      try { config = JSON.parse(form.config) }
-      catch (e) { ElMessage.error('配置不是合法 JSON'); return }
       const payload = { name: form.name, desc: form.desc || null, base_plugin_id: form.base_plugin_id, config }
       await customPluginAdd(payload)
       ElMessage.success('创建成功')
@@ -332,7 +346,6 @@ onMounted(load)
 .muted { color: #8a90a5; }
 .empty { padding: 30px 0; text-align: center; color: #98a0b3; font-size: 13px; }
 .field-hint { font-size: 11.5px; color: #98a0b3; }
-.field-locked { font-size: 12px; color: #8a90a5; background: #f6f7fb; border: 1px dashed #d8dcea; border-radius: 6px; padding: 2px 8px; }
 .content-pre {
   margin: 0; max-height: 420px; overflow: auto;
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
