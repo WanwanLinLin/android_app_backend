@@ -21,11 +21,14 @@ from utils.getLogs import LOG
 from setting import config_data
 
 TAG = __name__
+# 识别服务实际返回的是全称（Chinese/English/...），历史版本只以缩写为键，
+# 导致全称永远匹配不上、语种写不进 conn.current_language（multi_tts 永远走 default）。
+# 2026-10-26 起缩写与全称都作为键，统一归一为全称（对客户端协议保持不变）。
 LANG_MAP = {
-    "zh": "Chinese",
-    "yue": "Cantonese",
-    "en": "English",
-    "ja": "Japanese"
+    "zh": "Chinese", "chinese": "Chinese", "zh-cn": "Chinese", "zh_cn": "Chinese",
+    "yue": "Cantonese", "cantonese": "Cantonese", "zh-hk": "Cantonese", "zh_hk": "Cantonese",
+    "en": "English", "english": "English", "en-us": "English", "en_us": "English",
+    "ja": "Japanese", "japanese": "Japanese", "ja-jp": "Japanese", "ja_jp": "Japanese",
 }
 
 

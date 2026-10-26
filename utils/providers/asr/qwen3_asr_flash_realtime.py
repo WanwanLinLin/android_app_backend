@@ -24,10 +24,10 @@ from setting import config_data
 
 TAG = __name__
 LANG_MAP = {
-    "zh": "Chinese",
-    "yue": "Cantonese",
-    "en": "English",
-    "ja": "Japanese"
+    "zh": "Chinese", "chinese": "Chinese", "zh-cn": "Chinese", "zh_cn": "Chinese",
+    "yue": "Cantonese", "cantonese": "Cantonese", "zh-hk": "Cantonese", "zh_hk": "Cantonese",
+    "en": "English", "english": "English", "en-us": "English", "en_us": "English",
+    "ja": "Japanese", "japanese": "Japanese", "ja-jp": "Japanese", "ja_jp": "Japanese",
 }
 
 

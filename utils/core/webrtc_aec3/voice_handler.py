@@ -299,7 +299,7 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
         conn.llm_queue.put(conn.global_config.get("llm_config", {}).get("params", None).get("prologue", None))
         # await asyncio.sleep(2)
     chunk_nums = 0
-    sentence_len = 10
+    sentence_len = 15
     while conn.is_active:
         if not conn.llm_queue.empty():
             question = conn.llm_queue.get()
@@ -318,12 +318,12 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
                     current_sentence += text
                     all_reply += text
                     await websocket.send_json({"type": WebsocketServerEvent.ASSISTANT.value, "text": text})
-                    await asyncio.sleep(0.005)
+                    await asyncio.sleep(0.001)
                     if current_sentence and len(current_sentence) > sentence_len and current_sentence[-1] in conn.punctuation_separator:
                         if current_sentence[-1] == ".":
                             if str(current_sentence[-2]) in "0123456789":
                                 continue
-                        sentence_len = 5
+                        sentence_len = 10
                         # LOG(f"{datetime.now()} 开始合成 LLM 回复 {current_sentence}", "DEBUG")
                         conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
                         current_sentence = ""
@@ -331,7 +331,7 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
                     await websocket.send_json({"type": "finish"})
                     conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
                     chunk_nums = 0
-                    sentence_len = 10
+                    sentence_len = 15
                     LOG("LLM 回复被打断...", "DEBUG")
                     break
             # 处理剩余语句
@@ -341,7 +341,7 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
             await websocket.send_json({"type": WebsocketServerEvent.FINISH.value})
             conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.LLM_DONE.value})
             chunk_nums = 0
-            sentence_len = 10
+            sentence_len = 15
         else:
             await asyncio.sleep(0.01)
 
