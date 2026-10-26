@@ -22,6 +22,8 @@ from setting import config_data
 from utils.tools import AsyncWavReader
 from datetime import datetime
 from mybatisPlus.tts_orm import get_one_voice
+from mybatisPlus.custom_plugin_orm import resolve_runtime_config
+from mybatisPlus.tables.sqlcli import AsyncSessionLocal
 
 
 # 语种别名归一化：ASR/LLM 写入的可能是全称（Chinese/English/...），
@@ -76,7 +78,14 @@ class TTSProvider(TTSProviderBase):
                 return None
             tts_id = self.additional_param[lang_key if lang_key else "default"]
             try:
-                tts_config = await get_one_voice(tts_id)
+                # 2026-10-26 起 params 里的 id 优先按个性插件解析（CustomPlugin 全配置），
+                # 不是个性插件 id 时回落旧资源池 TTSFactories（兼容老 multi_tts 配置）。
+                # 两表 id 空间实际不重叠；老配置（旧池 id）行为不变。
+                tts_config = None
+                async with AsyncSessionLocal() as _sess:
+                    tts_config = await resolve_runtime_config(_sess, "TTS_CUSTOM", tts_id)
+                if tts_config is None:
+                    tts_config = await get_one_voice(tts_id)
                 LOG(f"当前语种：{conn.current_language} | 命中键：{lang_key or 'default'} | 使用的tts: {tts_config}", "DEBUG")
                 tts_lib_name = f"utils.providers.tts.{tts_config.get('tag')}"
                 tts_engine = importlib.import_module(tts_lib_name).TTSProvider(tts_config)
