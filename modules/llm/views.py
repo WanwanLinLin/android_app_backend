@@ -21,6 +21,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
 from utils.admin_auth import require_admin, current_admin, is_admin
+from utils.secret_mask import mask_secrets
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -30,7 +31,7 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 @router.post("/v1/agent/list", summary="获取大模型列表（旧资源池，仅管理员）", tags=["通用接口"])
 async def _list_agents(admin: dict = Depends(require_admin)):
     """旧 Factories 资源池为遗留通道，理由同 asr/views.py。"""
-    return GeneticResponse(data=await get_agent_list(only_active=False))
+    return GeneticResponse(data=mask_secrets(await get_agent_list(only_active=False)))
 
 
 @router.post("/v1/agent/add", summary="添加大模型/agent", tags=["通用接口"])
@@ -43,7 +44,7 @@ async def _add_agent(info: schema.AddLLModel, admin: dict = Depends(require_admi
             dependencies=[Depends(validate_accesskey)])
 async def _get_agent(id: int):
     data = await get_one_agent(id)
-    if data: return GeneticResponse(data=data)
+    if data: return GeneticResponse(data=mask_secrets(data))
     return GeneticResponse(code=400, msg="data not exist")
 
 

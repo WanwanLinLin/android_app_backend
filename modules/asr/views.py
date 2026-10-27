@@ -21,6 +21,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
 from utils.admin_auth import require_admin, current_admin, is_admin
+from utils.secret_mask import mask_secrets
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -32,7 +33,7 @@ async def _list_asr(admin: dict = Depends(require_admin)):
     """旧 Factories 资源池为遗留通道：资源体系重构后普通用户走
     /v1/customPlugin/list（个性插件）与 /v1/basePlugin/list（基础插件），
     本列表仅管理员可见（存量运维、迁移核对）。"""
-    return GeneticResponse(data=await get_asr_list(only_active=False))
+    return GeneticResponse(data=mask_secrets(await get_asr_list(only_active=False)))
 
 
 @router.post("/v1/asr/add", summary="添加语音识别模型", tags=["通用接口"])
@@ -45,7 +46,7 @@ async def _add_asr(info: schema.AddLLModel, admin: dict = Depends(require_admin)
             dependencies=[Depends(validate_accesskey)])
 async def _get_asr(id: int):
     data = await get_one_asr(id)
-    if data: return GeneticResponse(data=data)
+    if data: return GeneticResponse(data=mask_secrets(data))
     return GeneticResponse(code=400, msg="data not exist")
 
 

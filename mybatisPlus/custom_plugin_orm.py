@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 
 from utils.common.schema import GeneticResponse
 from utils.common.enumTaskType import SourceTypeEnum
+from utils.secret_mask import restore_masked
 from .tables.industrial_park import (BasePlugin, CustomPlugin, SourceList, STATUS_ACTIVE,
                                      STATUS_OFF_SHELF)
 from .tables.sqlcli import AsyncSessionLocal
@@ -222,6 +223,9 @@ async def create_custom_plugin(admin: bool, user_id: int, **kwargs):
                 return GeneticResponse(code=400, msg="基础插件已下架，不可基于它创建个性插件")
             cfg = dict(config)
             cfg.pop("id", None)
+            # 前端表单常从基础插件 default_config 预填，而展示层已把敏感值掩码为 "***"；
+            # 未改动时按基础插件登记的原值回填，避免掩码串被当成真实 key 落库
+            cfg = restore_masked(cfg, base.default_config)
             if base.category == "TTS":
                 user_tag = cfg.get("tag")
                 if user_tag in (None, ""):
@@ -270,6 +274,9 @@ async def update_custom_plugin(id: int, admin: bool, user_id: int, **kwargs):
                 return GeneticResponse(code=403, msg="只能修改自己创建的个性插件")
             cfg = dict(config)
             cfg.pop("id", None)
+            # 展示层已把 apikey/Authorization 掩码为 "***"，表单未改动时提交的就是掩码值，
+            # 写库前按原值回填，防止 "***" 覆盖真实 key（详见 utils/secret_mask.py）
+            cfg = restore_masked(cfg, c.config)
             if c.category == "TTS":
                 user_tag = cfg.get("tag")
                 if user_tag in (None, ""):

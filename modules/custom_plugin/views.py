@@ -5,6 +5,7 @@ from mybatisPlus.custom_plugin_orm import (get_custom_plugin_list, get_one_custo
                                            delete_custom_plugin)
 from utils.common.schema import GeneticResponse
 from utils.admin_auth import current_admin, is_admin
+from utils.secret_mask import mask_secrets
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -21,14 +22,14 @@ async def _list_custom_plugins(category: str, admin: dict = Depends(current_admi
     严格私有：普通用户仅见自己创建的；admin 见全部（仅治理用途）。
     所属基础插件已下架/已删除的个性插件对所有人不可见。
     """
-    return GeneticResponse(data=await get_custom_plugin_list(
-        category.upper(), is_admin(admin), admin["id"]))
+    return GeneticResponse(data=mask_secrets(await get_custom_plugin_list(
+        category.upper(), is_admin(admin), admin["id"])))
 
 
 @router.get("/v1/customPlugin/get/{id}", summary="获取一个个性插件", tags=["通用接口"])
 async def _get_custom_plugin(id: int, admin: dict = Depends(current_admin)):
     data = await get_one_custom_plugin(id)
-    if data: return GeneticResponse(data=data)
+    if data: return GeneticResponse(data=mask_secrets(data))
     return GeneticResponse(code=400, msg="data not exist")
 
 

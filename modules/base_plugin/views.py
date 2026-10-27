@@ -7,6 +7,7 @@ from mybatisPlus.base_plugin_orm import (get_base_plugin_list, get_one_base_plug
 from mybatisPlus.tables.industrial_park import STATUS_ACTIVE, STATUS_OFF_SHELF
 from utils.common.schema import GeneticResponse
 from utils.admin_auth import require_admin, current_admin, is_admin
+from utils.secret_mask import mask_secrets
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -21,7 +22,8 @@ async def _list_base_plugins(admin: dict = Depends(current_admin)):
 
     列表会自动扫描插件目录，把磁盘上新增且未登记的文件登记为在售。
     """
-    return GeneticResponse(data=await get_base_plugin_list(only_active=not is_admin(admin)))
+    return GeneticResponse(data=mask_secrets(
+        await get_base_plugin_list(only_active=not is_admin(admin))))
 
 
 @router.post("/v1/basePlugin/add", summary="登记基础插件（需磁盘已有代码文件）", tags=["通用接口"])
@@ -32,7 +34,7 @@ async def _add_base_plugin(info: schema.AddBasePluginModel, admin: dict = Depend
 @router.get("/v1/basePlugin/get/{id}", summary="获取一个基础插件", tags=["通用接口"])
 async def _get_base_plugin(id: int, admin: dict = Depends(current_admin)):
     data = await get_one_base_plugin(id)
-    if data: return GeneticResponse(data=data)
+    if data: return GeneticResponse(data=mask_secrets(data))
     return GeneticResponse(code=400, msg="data not exist")
 
 

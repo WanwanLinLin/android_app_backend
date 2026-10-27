@@ -21,6 +21,7 @@ from utils.common.schema import GeneticResponse
 from utils.common.auth import validate_stream_accesskey
 from utils.auth import validate_accesskey
 from utils.admin_auth import require_admin, current_admin, is_admin
+from utils.secret_mask import mask_secrets
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -31,7 +32,7 @@ router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not fo
 @router.post("/v1/tts/list", summary="受支持的音色列表（旧资源池，仅管理员）", tags=["通用接口"])
 async def voice_list(admin: dict = Depends(require_admin)):
     """旧 Factories 资源池为遗留通道，理由同 asr/views.py。"""
-    return GeneticResponse(data=await get_voice_list(only_active=False))
+    return GeneticResponse(data=mask_secrets(await get_voice_list(only_active=False)))
 
 
 @router.post("/v1/tts/add", summary="增加一个音色", tags=["通用接口"])
@@ -43,7 +44,7 @@ async def add_voice(info: schema.AddVoiceModel, admin: dict = Depends(require_ad
 @router.get("/v1/tts/get/{id}", summary="获取一个音色详情", tags=["通用接口"], dependencies=[Depends(validate_stream_accesskey)])
 async def _get_one_voice(id: int):
     data = await get_one_voice(id)
-    if data: return GeneticResponse(data=data)
+    if data: return GeneticResponse(data=mask_secrets(data))
     return GeneticResponse(code=400, msg="data not exist")
 
 

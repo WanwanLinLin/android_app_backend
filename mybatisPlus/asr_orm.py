@@ -12,6 +12,7 @@ from .shelf_orm import binding_guard, active_only
 from .tables.sqlcli import Base, async_engine, AsyncSessionLocal
 from utils.randomString import create_numbering
 from utils.common.schema import GeneticResponse
+from utils.secret_mask import restore_masked
 from setting import *
 
 
@@ -100,7 +101,8 @@ async def update_one_asr(id: int, **kwargs):
             if not asr:
                 return GeneticResponse(code=400, msg="data not exist")
             if kwargs.get("params", None) is not None:
-                asr.params = kwargs.get("params")
+                # params 内 apikey/Authorization 展示层已掩码为 "***"，未改动时回填原值
+                asr.params = restore_masked(kwargs.get("params"), asr.params)
             session.add(asr)
             return GeneticResponse()
 
