@@ -28,6 +28,8 @@ class LLMProvider(LLMProviderBase):
         }
         if self.params.get("body", None):
             json_data.update(**self.params.get("body"))
+        if self.params.get("headers", None):
+            self.headers.update(**self.params.get("headers"))
         json_data = json.dumps(json_data)
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
             async with session.post(self.url, headers=self.headers, data=json_data) as response:
@@ -41,6 +43,11 @@ class LLMProvider(LLMProviderBase):
                                 # 查找 JSON 数据部分
                                 json_str = decoded_data.split('data:')[1].strip()
                                 output = json.loads(json_str)
+                                if output.get("language", ""):
+                                    # 大模型语种优先级高于 ASR；返回空视为未提供，保留 ASR 语种
+                                    kwargs["conn"].current_language = output['language']
+                                    LOG(f"{self.name} 获取到语言类型：{output['language']}", "DEBUG")
+                                    continue
                                 if "done" in output and output["done"]: break
                                 yield output["delta"]
                                     # yield [data_dict['data']['answer'],session_id]
