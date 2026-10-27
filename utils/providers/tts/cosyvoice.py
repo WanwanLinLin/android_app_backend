@@ -53,9 +53,12 @@ class TTSProvider(TTSProviderBase):
                         while conn.is_active:
                             if conn.status == WebsocketConnectionEvent.TALKING.value: break  # 打断tts数据传输
                             data1 = await reader.read_frame()
-                            if len(data1) < 160 * 2:
-                                # Last partial frame
-                                # conn.tts_data_queue.put(data1)
+                            if not data1: break
+                            if len(data1) < reader.frame_bytes:
+                                # 尾帧补零而不是丢弃：硬截断会在句尾留下波形跳变（听感为"咔"声），
+                                # 补齐后仍是完整 320 字节帧，不会被 opus 编码器截断
+                                data1 += b'\x00' * (reader.frame_bytes - len(data1))
+                                conn.tts_data_queue.put(data1)
                                 break
 
                             conn.tts_data_queue.put(data1)
