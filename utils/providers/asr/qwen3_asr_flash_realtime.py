@@ -211,10 +211,13 @@ class ASRProvider(ASRProviderBase):
                     elif resp["type"] == "conversation.item.input_audio_transcription.completed":
                         conn.in_recognize = True
                         LOG(f"{TAG} 语音识别完成 {resp}", "DEBUG")
-                        if resp["language"] in LANG_MAP:
-                            lang_type = LANG_MAP[resp["language"]]
-                        else:
-                            lang_type = ""
+                        # LANG_MAP 键全为小写，服务返回首字母大写全称（Chinese/English），
+                        # 必须 lower() 后再查，否则永远查空（2026-10-27 修复）
+                        lang_type = LANG_MAP.get(str(resp.get("language") or "").strip().lower(), "")
+                        # 识别语种写入连接对象，供 multi_tts 选音色；
+                        # 大模型若随后返回语种会覆盖它（LLM 优先，ASR 兜底）
+                        if lang_type:
+                            conn.current_language = lang_type
                         await websocket.send_json({
                                 "type": "transcription",
                                 "text": resp["transcript"],
