@@ -15,6 +15,8 @@ class LLMProvider(LLMProviderBase):
             self.base_url = config.get("params").get("base_url")
         else:
             self.base_url = config.get("url")
+        # params 可配置 system_prompt，非空时作为系统消息注入模型上下文
+        self.system_prompt = (config.get("params") or {}).get("system_prompt") or ""
         # 增加timeout的配置项，单位为秒
         timeout = config.get("timeout", 300)
         self.timeout = int(timeout) if timeout else 300
@@ -41,11 +43,20 @@ class LLMProvider(LLMProviderBase):
 
         self.client = openai.AsyncClient(api_key=self.api_key, base_url=self.base_url, timeout=httpx.Timeout(self.timeout))
 
+    def _build_messages(self, dialogue):
+        """params 配置了 system_prompt 时置于上下文最前；未配置则原样返回。
+        返回新列表，避免污染 conn.dialogue_history。"""
+        if not self.system_prompt:
+            return dialogue
+        if dialogue and dialogue[0].get("role") == "system":
+            return dialogue
+        return [{"role": "system", "content": self.system_prompt}, *dialogue]
+
     async def response(self, session_id, dialogue, **kwargs):
         try:
             responses = await self.client.chat.completions.create(
                 model=self.model_name,
-                messages=dialogue,
+                messages=self._build_messages(dialogue),
                 stream=True,
                 max_tokens=kwargs.get("max_tokens", self.max_tokens),
                 temperature=kwargs.get("temperature", self.temperature),
@@ -88,7 +99,7 @@ class LLMProvider(LLMProviderBase):
     async def response_with_functions(self, session_id, dialogue, **kwargs):
         try:
             stream = await self.client.chat.completions.create(
-                model=self.model_name, messages=dialogue, stream=True, tools=kwargs["functions"]
+                model=self.model_name, messages=self._build_messages(dialogue), stream=True, tools=kwargs["functions"]
             )
 
             async for chunk in stream:
