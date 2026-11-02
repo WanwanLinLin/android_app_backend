@@ -47,7 +47,10 @@ class TTSProvider(TTSProviderBase):
                         async with aiofiles.open(_save_path, "wb") as f:
                             await f.write(audio_data)
                         # command = f"ffmpeg -i {_save_path} -ar 16000 -c:a pcm_s16le {save_path}"
-                        command = f"ffmpeg -f s16le -ar 24000 -ac 1 -i {_save_path} -f s16le -ar 16000 {save_path}"
+                        if "origin_sample_rate" in self.params:
+                            origin_sample_rate = self.params["origin_sample_rate"]
+                        else: origin_sample_rate = 24000
+                        command = f"ffmpeg -f s16le -ar {origin_sample_rate} -ac 1 -i {_save_path} -f s16le -ar 16000 {save_path}"
                         # print(f"save_path is {save_path}")
                         process = await asyncio.create_subprocess_shell(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         output, error = await process.communicate()
