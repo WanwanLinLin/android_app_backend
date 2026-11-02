@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 import json
@@ -26,8 +27,68 @@ class TTSProvider(TTSProviderBase):
         self.token = config.get("apikey")
         self.start_time = time.perf_counter()
 
+    def custom_text_front(self, text):
+            t1 = self.remove_emoji_regex(text)
+            t2 = self.clean_markdown_super(t1)
+            return t2
+            
+    def remove_emoji_regex(self, text):
+        return ''.join(char for char in text if unicodedata.category(char) != 'So')
+        
+    def clean_markdown_super(self, text):
+        # 1. 移除代码块 ```...```
+        text = re.sub(r'```[\s\S]*?```', '', text)
+        
+        # 2. 移除行内代码 `...`
+        text = re.sub(r'`', '', text)
+        
+        # 3. 移除所有标题 #
+        text = re.sub(r'#', '', text)
+        
+        # 4. 移除粗体/斜体 ** * __ _
+        text = re.sub(r'\*\*|\*|__|_', '', text)
+        
+        # 5. 处理链接 [文字](链接) → 只保留文字
+        text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)
+        
+        # 6. 移除图片 ![]()
+        text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+
+        # ====================== 修复：保留百分比负号 ======================
+        # 第一步：保护 百分比前面的负号（-16.7% 这种）
+        text = re.sub(r'(-\d+\.?\d*%)', r'#NEG#\1', text)
+
+        # 第二步：保护 温度区间里的减号
+        text = re.sub(r'(\d|℃)\s*-\s*(?=\d|℃)', r'\1#TEMP#', text)
+
+        # 第三步：删除剩下的所有 - + *（列表符号、无用符号）
+        text = re.sub(r'[-+*]', '', text)
+
+        # 第四步：恢复百分比负号
+        text = text.replace('#NEG#', '负')
+
+        # 第五步：恢复温度区间
+        text = text.replace('#TEMP#', '至')
+        # ==================================================================
+        
+        # 8. 移除引用 >
+        text = re.sub(r'>', '', text)
+        
+        # 9. 移除表格 |
+        text = re.sub(r'\|', '', text)
+        
+        # 10. 移除分割线
+        text = re.sub(r'-{3,}|\*{3,}|={3,}', '', text)
+        
+        # 11. 清理多余空格、空行
+        text = re.sub(r'\n+', '\n', text).strip()
+        text = re.sub(r' +', ' ', text)
+        
+        return text
+
     async def text_to_speak(self, text, conn):
         nums = 0
+        text = self.custom_text_front(text)
         for i in range(5):
             nums += 1
             start_time = time.perf_counter()
