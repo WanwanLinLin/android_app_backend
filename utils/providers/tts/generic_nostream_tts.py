@@ -7,6 +7,7 @@ import aiohttp
 import asyncio
 import aiofiles
 import subprocess
+import unicodedata
 from utils.common.enumTaskType import WebsocketConnectionEvent
 from utils.providers.tts.base import TTSProviderBase
 from pydub import AudioSegment
