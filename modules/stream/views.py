@@ -71,6 +71,7 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
     start_time = time.perf_counter()
     conn = ConnectionObjectCustomAec3("manbaout", vad_max_thre=prompt.get("vad_max_thre", 0.9),
                                       vad_min_thre=prompt.get("vad_min_thre", 0.65), silence_threshold_ms=prompt.get("silence_threshold_ms", 1500))
+    conn.websocket = websocket
     conn.frv.init(
         *vad_model_paths(config_data["MODEL_CONFIG"][0]["path"]),
         16000, 10, 25, 0.9,

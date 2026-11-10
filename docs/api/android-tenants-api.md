@@ -186,7 +186,7 @@ token: 3f2a...（40位sha1）
       "user_id": 1,
       "tenantname": "hopesen-02",
       "nickname": "张三",
-      "job": "园区巡检",
+      "job": "运维工程师",
       "phone_number": "13800000000"
     }
   ]

@@ -132,6 +132,9 @@ class ConnectionObjectCustomAec3:
         self.in_recognize = False
         self.chunk_asr_client: WebSocket = None
         self.last_chunk_sentence = ""
+        # stream/views.py 建连后挂入：供 providers 插件（LLM/TTS/ASR）在报错时
+        # 直接通过 send_error_to_client 向终端推送错误事件
+        self.websocket: WebSocket = None
         
         # 线程任务相关
         self.loop = asyncio.get_event_loop()

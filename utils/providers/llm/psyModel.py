@@ -3,7 +3,7 @@ import httpx
 import openai
 import aiohttp
 from openai.types import CompletionUsage
-from utils.providers.llm.base import LLMProviderBase
+from utils.providers.llm.base import LLMProviderBase, notify_client_error
 from utils.getLogs import LOG
 
 
@@ -48,12 +48,16 @@ class LLMProvider(LLMProviderBase):
                             if content: yield content
 
         except Exception as e:
-            LOG(f"Error in response generation: {e}", "DEBUG")
-            yield f"Error in response generation: {e}"
+            LOG(f"Error in response generation: {e}", "ERROR")
+            # 报错提示已由 notify_client_error 以 assistant 事件推送，
+            # 不再 yield（否则 monitor 会把它转成第二条 assistant 消息重复下发）
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")
 
     async def response_with_functions(self, session_id, dialogue, **kwargs):
         try:
             ...
 
         except Exception as e:
+            LOG(f"Error in response_with_functions generation: {e}", "ERROR")
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")
             yield f"【心理对话服务响应异常: {e}】", None

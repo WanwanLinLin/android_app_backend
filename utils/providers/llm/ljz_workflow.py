@@ -4,7 +4,7 @@ import httpx
 import openai
 import aiohttp
 from openai.types import CompletionUsage
-from utils.providers.llm.base import LLMProviderBase
+from utils.providers.llm.base import LLMProviderBase, notify_client_error
 from utils.getLogs import LOG
 
 
@@ -15,39 +15,43 @@ class LLMProvider(LLMProviderBase):
         self.url = config.get("url")
         self.headers = config.get("params").get("headers")
         self.params = config.get("params")
-    
-    async def response(self, session_id, dialogue, **kwargs):
-        pkg_nums = 0
-        start_time = time.perf_counter()
-        reply_reply_prefix = ""
-        json_data = {
-            "session_id": session_id,
-            "event": "chat",
-            "text": dialogue[-1]["content"],
-            "stream": True
-        }
-        json_data = json.dumps(json_data)
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
-            async with session.post(self.url, headers=self.headers, data=json_data) as response:
-                if response.status == 200:
-                    # 遍历响应内容
-                    async for chunk in response.content:
-                        if chunk:
-                            try:
-                                decoded_data = chunk.decode('utf-8')
-                                # print(f"rag origin string: {decoded_data[:100]}")
-                                # 查找 JSON 数据部分
-                                json_str = decoded_data.split('data:')[1].strip()
-                                output = json.loads(json_str)
-                                if "done" in output and output["done"]: break
-                                if output.get("type", "") == "meta" and output.get("language"):
-                                    # 大模型语种优先级高于 ASR；返回空视为未提供，保留 ASR 语种
-                                    kwargs["conn"].current_language = output['language']
-                                    LOG(f"{self.name} 获取到语言类型：{output['language']}", "DEBUG")
-                                yield output["text"]
-                                    # yield [data_dict['data']['answer'],session_id]
-                            except Exception as e:
-                                pass
-                else:
-                    LOG(f"Error in ragflow response generation: {await response.content.read()}", "DEBUG")
 
+    async def response(self, session_id, dialogue, **kwargs):
+        try:
+            pkg_nums = 0
+            start_time = time.perf_counter()
+            reply_reply_prefix = ""
+            json_data = {
+                "session_id": session_id,
+                "event": "chat",
+                "text": dialogue[-1]["content"],
+                "stream": True
+            }
+            json_data = json.dumps(json_data)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
+                async with session.post(self.url, headers=self.headers, data=json_data) as response:
+                    if response.status == 200:
+                        # 遍历响应内容
+                        async for chunk in response.content:
+                            if chunk:
+                                try:
+                                    decoded_data = chunk.decode('utf-8')
+                                    # print(f"rag origin string: {decoded_data[:100]}")
+                                    # 查找 JSON 数据部分
+                                    json_str = decoded_data.split('data:')[1].strip()
+                                    output = json.loads(json_str)
+                                    if "done" in output and output["done"]: break
+                                    if output.get("type", "") == "meta" and output.get("language"):
+                                        # 大模型语种优先级高于 ASR；返回空视为未提供，保留 ASR 语种
+                                        kwargs["conn"].current_language = output['language']
+                                        LOG(f"{self.name} 获取到语言类型：{output['language']}", "DEBUG")
+                                    yield output["text"]
+                                        # yield [data_dict['data']['answer'],session_id]
+                                except Exception as e:
+                                    pass
+                    else:
+                        LOG(f"Error in {self.name} response generation: {await response.content.read()}", "ERROR")
+                        await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：工作流服务返回 {response.status}")
+        except Exception as e:
+            LOG(f"Error in {self.name} response generation: {e}", "ERROR")
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")

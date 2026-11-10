@@ -2,7 +2,7 @@ import httpx
 import openai
 from openai.types import CompletionUsage
 from utils.common.enumTaskType import WebsocketConnectionEvent
-from utils.providers.llm.base import LLMProviderBase
+from utils.providers.llm.base import LLMProviderBase, notify_client_error
 from utils.getLogs import LOG
 
 
@@ -94,7 +94,8 @@ class LLMProvider(LLMProviderBase):
                         yield content
 
         except Exception as e:
-            LOG(f"Error in response generation: {e}", "DEBUG")
+            LOG(f"Error in response generation: {e}", "ERROR")
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")
 
     async def response_with_functions(self, session_id, dialogue, **kwargs):
         try:
@@ -124,4 +125,6 @@ class LLMProvider(LLMProviderBase):
                     usage_info = getattr(chunk, "usage", None)
 
         except Exception as e:
+            LOG(f"Error in response_with_functions generation: {e}", "ERROR")
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")
             yield f"【OpenAI服务响应异常: {e}】", None

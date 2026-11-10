@@ -4,7 +4,7 @@ import httpx
 import openai
 import aiohttp
 from openai.types import CompletionUsage
-from utils.providers.llm.base import LLMProviderBase
+from utils.providers.llm.base import LLMProviderBase, notify_client_error
 from utils.getLogs import LOG
 
 
@@ -33,55 +33,59 @@ class LLMProvider(LLMProviderBase):
                 res = await response.json()
                 session_id = res["data"]["session_id"]
                 self.session_id = session_id
-    
-    async def response(self, session_id, dialogue, **kwargs):
-        pkg_nums = 0
-        start_time = time.perf_counter()
-        if not self.session_id:
-            await self.create_session()
-            LOG(f"ragflow 成功创建新的session_id: {self.session_id}")
-        reply_reply_prefix = ""
-        json_data = {
-            "question": dialogue[-1]["content"],
-            "stream": True,
-            "session_id": self.session_id
-        }
-        if self.params:
-            json_data.update(self.params)
-        json_data = json.dumps(json_data)
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
-            async with session.post(self.url, headers=self.headers, data=json_data) as response:
-                if response.status == 200:
-                    # 遍历响应内容
-                    async for chunk in response.content:
-                        if chunk:
-                            try:
-                                decoded_data = chunk.decode('utf-8')
-                                # print(f"rag origin string: {decoded_data[:100]}")
-                                # 查找 JSON 数据部分
-                                json_str = decoded_data.split('data:')[1].strip()
-                                data_dict = json.loads(json_str)
-                                if 'data' in data_dict and data_dict['data']!=True and  'answer' in data_dict['data']:
-                                    if "running_status" in data_dict['data']: continue  # 不显示插件检索部分
-                                    pkg_nums += 1
-                                    if pkg_nums == 1:
-                                        LOG(f"ragflow api获取首token时间: {time.perf_counter() - start_time} 秒", "DEBUG")
-                                    # print("data_dict['data'] is ", data_dict['data'])
-                                    if data_dict["code"] == 500:
-                                        output = "知识库未找到答案！"
-                                    else:
-                                        output = data_dict['data']['answer']
-                                    # if "is running..." in output: continue      # 不显示插件检索部分
-                                    _output = output
-                                    # 妥善处理前缀部分
-                                    if reply_reply_prefix not in output:
-                                        break
-                                    output = output.replace(reply_reply_prefix, "")
-                                    reply_reply_prefix = _output
-                                    yield output
-                                    # yield [data_dict['data']['answer'],session_id]
-                            except:
-                                pass
-                else:
-                    LOG(f"Error in ragflow response generation: {await response.content.read()}", "DEBUG")
 
+    async def response(self, session_id, dialogue, **kwargs):
+        try:
+            pkg_nums = 0
+            start_time = time.perf_counter()
+            if not self.session_id:
+                await self.create_session()
+                LOG(f"ragflow 成功创建新的session_id: {self.session_id}")
+            reply_reply_prefix = ""
+            json_data = {
+                "question": dialogue[-1]["content"],
+                "stream": True,
+                "session_id": self.session_id
+            }
+            if self.params:
+                json_data.update(self.params)
+            json_data = json.dumps(json_data)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120), connector=aiohttp.TCPConnector(ssl=False, limit=1024*1024*100)) as session:
+                async with session.post(self.url, headers=self.headers, data=json_data) as response:
+                    if response.status == 200:
+                        # 遍历响应内容
+                        async for chunk in response.content:
+                            if chunk:
+                                try:
+                                    decoded_data = chunk.decode('utf-8')
+                                    # print(f"rag origin string: {decoded_data[:100]}")
+                                    # 查找 JSON 数据部分
+                                    json_str = decoded_data.split('data:')[1].strip()
+                                    data_dict = json.loads(json_str)
+                                    if 'data' in data_dict and data_dict['data']!=True and  'answer' in data_dict['data']:
+                                        if "running_status" in data_dict['data']: continue  # 不显示插件检索部分
+                                        pkg_nums += 1
+                                        if pkg_nums == 1:
+                                            LOG(f"ragflow api获取首token时间: {time.perf_counter() - start_time} 秒", "DEBUG")
+                                        # print("data_dict['data'] is ", data_dict['data'])
+                                        if data_dict["code"] == 500:
+                                            output = "知识库未找到答案！"
+                                        else:
+                                            output = data_dict['data']['answer']
+                                        # if "is running..." in output: continue      # 不显示插件检索部分
+                                        _output = output
+                                        # 妥善处理前缀部分
+                                        if reply_reply_prefix not in output:
+                                            break
+                                        output = output.replace(reply_reply_prefix, "")
+                                        reply_reply_prefix = _output
+                                        yield output
+                                        # yield [data_dict['data']['answer'],session_id]
+                                except:
+                                    pass
+                    else:
+                        LOG(f"Error in ragflow response generation: {await response.content.read()}", "ERROR")
+                        await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：知识库服务返回 {response.status}")
+        except Exception as e:
+            LOG(f"Error in ragflow response generation: {e}", "ERROR")
+            await notify_client_error(kwargs.get("conn"), f"大模型「{self.name}」回复失败：{e}")
