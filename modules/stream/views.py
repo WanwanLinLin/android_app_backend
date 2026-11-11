@@ -133,6 +133,10 @@ async def websocket_endpoint(websocket: WebSocket, uid: str, token: str, timeSta
         conn.executor.submit(asyncio.run_coroutine_threadsafe, manage_agent_session(type="update", session_id=conn.session_id,
                                                            dialogue_history=conn.dialogue_history), conn.loop)
         conn.is_active = False
+        # 每连接 2 线程的池必须随会话回收：此前从不 shutdown，终端频繁
+        # 断线重连会持续累积线程（2026-11-10 修复）。wait=False：上面
+        # 提交的会话落库任务照常跑完，不阻塞本协程。
+        conn.executor.shutdown(wait=False)
         conn.frv = None
         # await conn.chunk_asr_client.close()
         # await asyncio.sleep(2.5)

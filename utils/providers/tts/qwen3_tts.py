@@ -85,7 +85,7 @@ class TTSProvider(TTSProviderBase):
                         # 补零到 320 字节
                         padding_length = 640 - len(buffer)
                         buffer.extend(b'\x00' * padding_length)  # 补静音（零值）
-                        conn.tts_data_queue.put(bytes(buffer))
+                        conn.tts_data_queue.put_nowait(bytes(buffer))
                     state = None
                     buffer = bytearray()
                     # self.audio_index = 0
@@ -103,7 +103,7 @@ class TTSProvider(TTSProviderBase):
                         del buffer[:640]
                         # 处理 data（正好 320 字节）
                         # print(f"{datetime.now()} len(data) is {len(data)} || len(converted) is {len(converted)}")
-                        conn.tts_data_queue.put(bytes(data))
+                        conn.tts_data_queue.put_nowait(bytes(data))
                         
         except websockets.exceptions.ConnectionClosedOK:
             ...

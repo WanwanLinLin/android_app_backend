@@ -58,10 +58,10 @@ class TTSProvider(TTSProviderBase):
                                 # 尾帧补零而不是丢弃：硬截断会在句尾留下波形跳变（听感为"咔"声），
                                 # 补齐后仍是完整 320 字节帧，不会被 opus 编码器截断
                                 data1 += b'\x00' * (reader.frame_bytes - len(data1))
-                                conn.tts_data_queue.put(data1)
+                                conn.tts_data_queue.put_nowait(data1)
                                 break
 
-                            conn.tts_data_queue.put(data1)
+                            conn.tts_data_queue.put_nowait(data1)
 
                         await reader.close()
                         return save_path

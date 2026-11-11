@@ -512,6 +512,16 @@ async def get_source_list(tenantname: str):
                         select(CustomPlugin).where(CustomPlugin.id.in_(cids)))
                     custom_maps[category] = {r.id: r for r in rows}
 
+            # 个性插件引用的 BasePlugin 一次性批量取回（2026-11-10）：
+            # 原先在下方循环里逐插件 select(BasePlugin)，绑定 N 个个性插件
+            # 即 N 次往返（N+1）。
+            base_ids = {c.base_plugin_id for m in custom_maps.values()
+                        for c in m.values() if c.base_plugin_id is not None}
+            base_map = {}
+            if base_ids:
+                rows = await session.scalars(select(BasePlugin).where(BasePlugin.id.in_(base_ids)))
+                base_map = {b.id: b for b in rows}
+
             llm_list, tts_list, asr_list = [], [], []
             buckets = {"LLM": llm_list, "TTS": tts_list, "ASR": asr_list}
             for s in sources:
@@ -523,7 +533,7 @@ async def get_source_list(tenantname: str):
                     # 终端资源列表口径：个性插件须自身未删且基础插件在售，否则不展示
                     if c is None or c.is_delete:
                         continue
-                    base = await session.scalar(select(BasePlugin).filter_by(id=c.base_plugin_id))
+                    base = base_map.get(c.base_plugin_id)
                     if (not base or base.is_delete or
                             (base.status or STATUS_ACTIVE) == STATUS_OFF_SHELF):
                         continue

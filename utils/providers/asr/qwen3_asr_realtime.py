@@ -67,22 +67,21 @@ class ASRProvider(ASRProviderBase):
     
     async def send_audio_data(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
+            # 空闲挂在 queue.get()（2026-11-10 替代 sleep(0.002) 忙等双分支）
             while conn.is_active:
-                if not conn.audio_chunk_queue.empty():
-                    item = conn.audio_chunk_queue.get()
-                    if isinstance(item, tuple):
-                        pcm_frame, _ = item
-                    else:
-                        pcm_frame = item
-                    
-                    # 服务端 AEC（pyaec3）已移除：麦克风帧直接进入后续识别
-                    aec3_res = pcm_frame
-                    
-                    await self.qwen3_asr_websocket.send(aec3_res)
-                    # await self.qwen3_asr_websocket.send(pcm_frame)
-                    await asyncio.sleep(0.002)
+                try:
+                    item = await asyncio.wait_for(conn.audio_chunk_queue.get(), timeout=0.05)
+                except asyncio.TimeoutError:
+                    continue
+                if isinstance(item, tuple):
+                    pcm_frame, _ = item
                 else:
-                    await asyncio.sleep(0.002)
+                    pcm_frame = item
+
+                # 服务端 AEC（pyaec3）已移除：麦克风帧直接进入后续识别
+                aec3_res = pcm_frame
+
+                await self.qwen3_asr_websocket.send(aec3_res)
         except websockets.exceptions.ConnectionClosedOK:
             ...
     
@@ -132,7 +131,7 @@ class ASRProvider(ASRProviderBase):
                                 "text": resp["text"],
                                 "language": lang_type
                                 })
-                        if resp["text"]: conn.llm_queue.put(resp["text"])
+                        if resp["text"]: conn.llm_queue.put_nowait(resp["text"])
                         conn.in_recognize = False
                 await asyncio.sleep(0.003)
         except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):

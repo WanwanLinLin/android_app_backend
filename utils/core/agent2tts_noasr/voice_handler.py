@@ -49,21 +49,22 @@ async def receive_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomA
                     conn.status = WebsocketConnectionEvent.IDLE.value
                     await websocket.send_json({"type": WebsocketServerEvent.STOP_LISTENING.value})
                     await websocket.send_json({"type": WebsocketServerEvent.TRANSCRIPTION.value, "text": text, "language": language})
-                    if text: conn.llm_queue.put(text)
+                    if text: conn.llm_queue.put_nowait(text)
             elif "bytes" in message:
                 ...
 
 
 async def send_audio_data(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """Send TTS/playback audio to client, same as webrtc_aec3 template."""
+    # 空闲挂在 queue.get()，有帧即唤醒（2026-11-10 替代 sleep(0.01) 忙等）
     while conn.is_active:
-        if not conn.tts_data_queue.empty():
-            data1 = conn.tts_data_queue.get()
-            if conn.status == WebsocketConnectionEvent.IDLE.value:
-                frame_data = conn.opus_encoder.encode(data1, 320)
-                await websocket.send_bytes(frame_data)
-        else:
-            await asyncio.sleep(0.01)
+        try:
+            data1 = await asyncio.wait_for(conn.tts_data_queue.get(), timeout=0.05)
+        except asyncio.TimeoutError:
+            continue
+        if conn.status == WebsocketConnectionEvent.IDLE.value:
+            frame_data = conn.opus_encoder.encode(data1, 320)
+            await websocket.send_bytes(frame_data)
 
 
 async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
@@ -72,58 +73,60 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
     # 这里用 `or {}` 兜底，逻辑与原模板一致
     _llm_params = conn.global_config.get("llm_config", {}).get("params") or {}
     if _llm_params.get("prologue", None):
-        conn.llm_queue.put(_llm_params.get("prologue", None))
+        conn.llm_queue.put_nowait(_llm_params.get("prologue", None))
     chunk_nums = 0
     sentence_len = 10
     while conn.is_active:
-        if not conn.llm_queue.empty():
-            question = conn.llm_queue.get()
-            all_reply = ""
-            current_sentence = ""
-            conn.dialogue_history.append({"role": "user", "content": question})
-            start_time = time.perf_counter()
-            async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history, conn=conn):
-                chunk_nums += 1
-                if chunk_nums == 1:
-                    cost_time = round((time.perf_counter() - start_time), 5)
-                    LOG(f"{conn.llm_engine.name} 首token回复时间：{cost_time} 秒", "DEBUG")
-                    await websocket.send_json({"type": WebsocketServerEvent.ANALYSIS.value, "text": f"response in {cost_time} seconds"})
-                for text in _text:
-                    if conn.status == WebsocketConnectionEvent.TALKING.value: break
-                    current_sentence += text
-                    all_reply += text
-                    await websocket.send_json({"type": WebsocketServerEvent.ASSISTANT.value, "text": text})
-                    await asyncio.sleep(0.005)
-                    if current_sentence and len(current_sentence) > sentence_len and current_sentence[-1] in conn.punctuation_separator:
-                        if current_sentence[-1] == ".":
-                            if str(current_sentence[-2]) in "0123456789":
-                                continue
-                        sentence_len = 5
-                        conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
-                        current_sentence = ""
-                if conn.status == WebsocketConnectionEvent.TALKING.value:
-                    await websocket.send_json({"type": "finish"})
-                    conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
-                    chunk_nums = 0
-                    sentence_len = 10
-                    LOG("LLM 回复被打断...", "DEBUG")
-                    break
-            # 处理剩余语句
-            if current_sentence:
-                conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
-            conn.dialogue_history.append({"role": "assistant", "content": all_reply})
-            await websocket.send_json({"type": WebsocketServerEvent.FINISH.value})
-            conn.tts_pending_queue.appendleft({"task_type": ServerInternalEvent.LLM_DONE.value})
-            chunk_nums = 0
-            sentence_len = 10
-        else:
-            await asyncio.sleep(0.01)
+        try:
+            question = await asyncio.wait_for(conn.llm_queue.get(), timeout=0.05)
+        except asyncio.TimeoutError:
+            continue
+        all_reply = ""
+        current_sentence = ""
+        conn.dialogue_history.append({"role": "user", "content": question})
+        start_time = time.perf_counter()
+        async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history, conn=conn):
+            chunk_nums += 1
+            if chunk_nums == 1:
+                cost_time = round((time.perf_counter() - start_time), 5)
+                LOG(f"{conn.llm_engine.name} 首token回复时间：{cost_time} 秒", "DEBUG")
+                await websocket.send_json({"type": WebsocketServerEvent.ANALYSIS.value, "text": f"response in {cost_time} seconds"})
+            for text in _text:
+                if conn.status == WebsocketConnectionEvent.TALKING.value: break
+                current_sentence += text
+                all_reply += text
+                await websocket.send_json({"type": WebsocketServerEvent.ASSISTANT.value, "text": text})
+                await asyncio.sleep(0.005)
+                if current_sentence and len(current_sentence) > sentence_len and current_sentence[-1] in conn.punctuation_separator:
+                    if current_sentence[-1] == ".":
+                        if str(current_sentence[-2]) in "0123456789":
+                            continue
+                    sentence_len = 5
+                    conn.push_tts_task({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
+                    current_sentence = ""
+            if conn.status == WebsocketConnectionEvent.TALKING.value:
+                await websocket.send_json({"type": "finish"})
+                conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
+                chunk_nums = 0
+                sentence_len = 10
+                LOG("LLM 回复被打断...", "DEBUG")
+                break
+        # 处理剩余语句
+        if current_sentence:
+            conn.push_tts_task({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
+        conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+        await websocket.send_json({"type": WebsocketServerEvent.FINISH.value})
+        conn.push_tts_task({"task_type": ServerInternalEvent.LLM_DONE.value})
+        chunk_nums = 0
+        sentence_len = 10
 
 
 async def tts_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):
     """TTS 环节，与 webrtc_aec3 模板一致。"""
     current_tts_task = None
     while conn.is_active:
+        # 循环顶部清事件：与下面的 deque 检查之间无 await 点，无丢失唤醒风险
+        conn.tts_pending_event.clear()
         if conn.status == WebsocketConnectionEvent.TALKING.value:
             while len(conn.tts_pending_queue):
                 text = conn.tts_pending_queue.pop()
@@ -142,11 +145,29 @@ async def tts_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustom
                     await websocket.send_json({"type": WebsocketServerEvent.TTS_DONE.value})
                     LOG(f"向客户端推送tts音频结束消息", "DEBUG")
             elif current_tts_task.done():
-                if current_tts_task.result():
-                    current_tts_task = None
+                # 与 webrtc_aec3 模板同款：任务异常沿 result() 重抛，不捕获
+                # 会炸掉整条会话；单句失败丢弃并记日志。
+                try:
+                    current_tts_task.result()
+                except asyncio.CancelledError:
+                    LOG("TTS 任务已取消（打断）", "DEBUG")
+                except Exception as e:
+                    LOG(f"TTS 任务异常，丢弃该句: {e}", "ERROR")
+                current_tts_task = None
             else:
-                ...
-        await asyncio.sleep(0.008)
+                # 有任务在途：等完成或被唤醒，0.02s 上限及时感知打断
+                waiter = asyncio.create_task(conn.tts_pending_event.wait())
+                await asyncio.wait({current_tts_task, waiter}, timeout=0.02)
+                waiter.cancel()
+                continue
+        else:
+            # 完全空闲：挂起等事件，最长 0.1s 回检 status（2026-11-10 替代
+            # 恒定 sleep(0.008) 忙等，空闲连接近乎零开销）
+            try:
+                await asyncio.wait_for(conn.tts_pending_event.wait(), timeout=0.1)
+            except asyncio.TimeoutError:
+                pass
+            continue
 
 
 async def asr_process_monitor(websocket: WebSocket, conn: ConnectionObjectCustomAec3):

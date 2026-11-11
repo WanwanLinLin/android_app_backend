@@ -27,9 +27,9 @@ class OnewayEncryption:
     def verify_token(self, time_stamp, token):
         if (int(time.time() * 1000) - int(time_stamp)) > 50000: return 0
         r = redis.Redis(connection_pool=serect_pool)
-        list_length = r.llen("hps_apikey")
-        for index in range(list_length):
-            apikey = r.lindex("hps_apikey", index)
+        # lrange 一次取回全部 key：原先 llen + 逐条 lindex 是 N+1 次往返，
+        # 每个终端连接/请求都要付一遍 RTT
+        for apikey in r.lrange("hps_apikey", 0, -1):
             if self.build_token(time_stamp, apikey) == token: return 1
         return 0
 

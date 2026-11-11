@@ -83,106 +83,107 @@ class ASRProvider(ASRProviderBase):
     
     async def send_audio_data(self, websocket: WebSocket, conn: ConnectionObjectCustomAec3):
         try:
+            # 空闲挂在 queue.get()（2026-11-10 替代 sleep(0.005) 忙等轮询）
             while conn.is_active:
-                if not conn.audio_chunk_queue.empty():
-                    item = conn.audio_chunk_queue.get()
-                    if isinstance(item, tuple):
-                        pcm_frame, _ = item
-                    else:
-                        pcm_frame = item
-                    # base64_pcm =  {
-                    #     # "event_id": conn.event_id,
-                    #     "event_id": str(uuid.uuid4()),
-                    #     "type": "input_audio_buffer.append",
-                    #     "audio": base64.b64encode(pcm_frame).decode('utf-8')
-                    #     }
-                    # await self.aliyun_websocket.send(json.dumps(base64_pcm))
-                    # await asyncio.sleep(0.005)
+                try:
+                    item = await asyncio.wait_for(conn.audio_chunk_queue.get(), timeout=0.05)
+                except asyncio.TimeoutError:
+                    continue
+                if isinstance(item, tuple):
+                    pcm_frame, _ = item
+                else:
+                    pcm_frame = item
+                # base64_pcm =  {
+                #     # "event_id": conn.event_id,
+                #     "event_id": str(uuid.uuid4()),
+                #     "type": "input_audio_buffer.append",
+                #     "audio": base64.b64encode(pcm_frame).decode('utf-8')
+                #     }
+                # await self.aliyun_websocket.send(json.dumps(base64_pcm))
+                # await asyncio.sleep(0.005)
                     
-                    chunk3 = np.frombuffer(pcm_frame, dtype=np.int16)
-                    vad_res = conn.frv.process_stream(chunk3, 160)
+                chunk3 = np.frombuffer(pcm_frame, dtype=np.int16)
+                vad_res = conn.frv.process_stream(chunk3, 160)
 
-                    if conn.collect_previous:
-                        conn.previous_frame.enqueue(pcm_frame)
-                    if vad_res.confidence > conn.vad_max_thre:
-                        is_voice = True
-                    elif vad_res.confidence < conn.vad_min_thre:
-                        is_voice = False
-                    else:
-                        is_voice = conn.last_is_voice
+                if conn.collect_previous:
+                    conn.previous_frame.enqueue(pcm_frame)
+                if vad_res.confidence > conn.vad_max_thre:
+                    is_voice = True
+                elif vad_res.confidence < conn.vad_min_thre:
+                    is_voice = False
+                else:
+                    is_voice = conn.last_is_voice
 
-                    conn.last_is_voice = is_voice
-                    conn.client_voice_window.append(is_voice)
-                    client_have_voice = (
-                        conn.client_voice_window.count(True) >= conn.frame_window_threshold
-                    )
+                conn.last_is_voice = is_voice
+                conn.client_voice_window.append(is_voice)
+                client_have_voice = (
+                    conn.client_voice_window.count(True) >= conn.frame_window_threshold
+                )
 
-                    if conn.client_have_voice and not client_have_voice:
-                        stop_duration = time.time() * 1000 - conn.last_activity_time
-                        if stop_duration >= conn.silence_threshold_ms:
-                            conn.in_recognize = True
-                            LOG("停止监听！", "DEBUG")
-                            await websocket.send_json({"type": "stop_listening"})
-                            await self.aliyun_websocket.send(json.dumps({
-                            "event_id": str(uuid.uuid4()),
-                            "type": "input_audio_buffer.commit"
-                            }))
-                            conn.status = WebsocketConnectionEvent.IDLE.value
-                            file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
-                            pcm_data = conn.previous_frame_list + conn.all_asr_data
-                            # with wave.open(file_path, "wb") as wf:
-                            #     wf.setnchannels(1)
-                            #     wf.setsampwidth(2)
-                            #     wf.setframerate(16000)
-                            #     wf.writeframes(b"".join(pcm_data))
-                            conn.client_voice_stop = True
-                            conn.collect_previous = True
-                            conn.client_have_voice = False
-                            conn.all_asr_data = []
-                            conn.previous_frame_list = []
-                            conn.last_chunk_sentence = ""
-                            conn.all_point = 0
-                            conn.asr_pending_queue.put(file_path)
-                            conn.client_voice_window.clear()
+                if conn.client_have_voice and not client_have_voice:
+                    stop_duration = time.time() * 1000 - conn.last_activity_time
+                    if stop_duration >= conn.silence_threshold_ms:
+                        conn.in_recognize = True
+                        LOG("停止监听！", "DEBUG")
+                        await websocket.send_json({"type": "stop_listening"})
+                        await self.aliyun_websocket.send(json.dumps({
+                        "event_id": str(uuid.uuid4()),
+                        "type": "input_audio_buffer.commit"
+                        }))
+                        conn.status = WebsocketConnectionEvent.IDLE.value
+                        file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
+                        pcm_data = conn.previous_frame_list + conn.all_asr_data
+                        # with wave.open(file_path, "wb") as wf:
+                        #     wf.setnchannels(1)
+                        #     wf.setsampwidth(2)
+                        #     wf.setframerate(16000)
+                        #     wf.writeframes(b"".join(pcm_data))
+                        conn.client_voice_stop = True
+                        conn.collect_previous = True
+                        conn.client_have_voice = False
+                        conn.all_asr_data = []
+                        conn.previous_frame_list = []
+                        conn.last_chunk_sentence = ""
+                        conn.all_point = 0
+                        conn.asr_pending_queue.put_nowait(file_path)
+                        conn.client_voice_window.clear()
 
-                    if client_have_voice:
-                        conn.collect_previous = False
-                        conn.client_have_voice = True
-                        conn.last_activity_time = time.time() * 1000
-                        conn.all_point += 1
+                if client_have_voice:
+                    conn.collect_previous = False
+                    conn.client_have_voice = True
+                    conn.last_activity_time = time.time() * 1000
+                    conn.all_point += 1
 
-                    if conn.client_have_voice:
-                        conn.all_asr_data.append(pcm_frame)
-                        # chunk recog
-                        base64_pcm =  {
+                if conn.client_have_voice:
+                    conn.all_asr_data.append(pcm_frame)
+                    # chunk recog
+                    base64_pcm =  {
+                    # "event_id": conn.event_id,
+                    "event_id": str(uuid.uuid4()),
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(pcm_frame).decode('utf-8')
+                    }
+                    await self.aliyun_websocket.send(json.dumps(base64_pcm))
+
+                if conn.all_point == 1:
+                    conn.collect_previous = False
+                    conn.client_have_voice = True
+                    conn.last_activity_time = time.time() * 1000
+                    conn.all_point += 1
+                    LOG("开始监听333...", "DEBUG")
+                    conn.status = WebsocketConnectionEvent.TALKING.value
+                    await websocket.send_json({"type": "interrupt"})
+                    await websocket.send_json({"type": "start_listening"})
+                    conn.previous_frame_list = conn.previous_frame.get_all_items()
+                    voice_previous = conn.previous_frame_list
+                    base64_pcm =  {
                         # "event_id": conn.event_id,
                         "event_id": str(uuid.uuid4()),
                         "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(pcm_frame).decode('utf-8')
+                        "audio": base64.b64encode(b"".join(voice_previous)).decode('utf-8')
                         }
-                        await self.aliyun_websocket.send(json.dumps(base64_pcm))
-
-                    if conn.all_point == 1:
-                        conn.collect_previous = False
-                        conn.client_have_voice = True
-                        conn.last_activity_time = time.time() * 1000
-                        conn.all_point += 1
-                        LOG("开始监听333...", "DEBUG")
-                        conn.status = WebsocketConnectionEvent.TALKING.value
-                        await websocket.send_json({"type": "interrupt"})
-                        await websocket.send_json({"type": "start_listening"})
-                        conn.previous_frame_list = conn.previous_frame.get_all_items()
-                        voice_previous = conn.previous_frame_list
-                        base64_pcm =  {
-                            # "event_id": conn.event_id,
-                            "event_id": str(uuid.uuid4()),
-                            "type": "input_audio_buffer.append",
-                            "audio": base64.b64encode(b"".join(voice_previous)).decode('utf-8')
-                            }
-                        await self.aliyun_websocket.send(json.dumps(base64_pcm))
+                    await self.aliyun_websocket.send(json.dumps(base64_pcm))
                     
-                else:
-                    await asyncio.sleep(0.005)
         except websockets.exceptions.ConnectionClosedOK:
             ...
     
@@ -224,7 +225,7 @@ class ASRProvider(ASRProviderBase):
                                 "language": lang_type
                             }
                         )
-                        if resp["transcript"]: conn.llm_queue.put(resp["transcript"])
+                        if resp["transcript"]: conn.llm_queue.put_nowait(resp["transcript"])
                         conn.in_recognize = False
                 await asyncio.sleep(0.003)
         except websockets.exceptions.ConnectionClosedOK:
