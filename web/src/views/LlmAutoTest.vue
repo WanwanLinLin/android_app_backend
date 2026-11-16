@@ -22,8 +22,10 @@
         <el-icon><Loading v-if="batchRunning" /><InfoFilled v-else /></el-icon>
         <template v-if="batchRunning">
           一键测试进行中：已完成 {{ batch.done }}/{{ batch.total }}
-          <span v-if="batch.current" style="margin-left:8px">（正在运行「{{ batch.current }}」）</span>
-          <span style="margin-left:8px">—— 全部在后台依次执行，结果实时写回下方列表</span>
+          <span v-if="batch.current_list.length" style="margin-left:8px">
+            （{{ batch.current_list.length }} 个正在运行：{{ batch.current_list.join('、') }}）</span>
+          <span v-if="batchWaiting > 0" style="margin-left:8px">（{{ batchWaiting }} 个排队中）</span>
+          <span style="margin-left:8px">—— 最多 {{ batch.concurrency || 5 }} 个并发，结果实时写回下方列表</span>
         </template>
         <template v-else>{{ batchFinishedTip }}</template>
       </div>
@@ -467,15 +469,20 @@ async function onRun(row) {
   }
 }
 
-// ===================== 一键测试（全部任务后台串行） =====================
+// ===================== 一键测试（后台运行，最多 5 个并发，其余排队） =====================
 const batch = reactive({ running: false, total: 0, done: 0, ok: 0, fail: 0,
-                         skipped: 0, current: null })
+                         skipped: 0, current: null, current_list: [],
+                         concurrency: 5 })
 const batchRunning = computed(() => batch.running)
+// 排队数 = 总数 - 已完成 - 正在运行（skipped 也已计入 done，不重复扣）
+const batchWaiting = computed(() =>
+  Math.max(batch.total - batch.done - (batch.current_list || []).length, 0))
 const batchFinishedTip = ref('')
 let batchTimer = null
 
 function applyBatchStatus(s) {
   Object.assign(batch, s || {})
+  if (!Array.isArray(batch.current_list)) batch.current_list = []
 }
 
 // 每次状态轮询顺带刷新列表，「最近结果」列实时亮起来
@@ -504,7 +511,8 @@ function stopBatchPolling() {
 async function onRunAll() {
   try {
     await ElMessageBox.confirm(
-      `将把当前 ${rows.value.length} 个测试任务全部后台依次运行（真实调用大模型，插件较多时整体可能需要几分钟）。`
+      `将把当前 ${rows.value.length} 个测试任务全部后台运行（最多 ${batch.concurrency || 5} 个并发，`
+      + '其余排队；真实调用大模型，插件较多时整体可能需要几分钟）。'
       + '正在运行中的任务会自动跳过。', '一键开始测试', { type: 'warning', confirmButtonText: '开始测试' })
   } catch (e) { return }
   batchFinishedTip.value = ''
@@ -513,8 +521,9 @@ async function onRunAll() {
     batch.running = true
     batch.total = data.total
     batch.done = 0; batch.ok = 0; batch.fail = 0
-    batch.skipped = data.skipped || 0; batch.current = null
-    ElMessage.success(`已提交 ${data.total} 个任务后台依次运行`)
+    batch.skipped = data.skipped || 0; batch.current = null; batch.current_list = []
+    ElMessage.success(`已提交 ${data.total} 个任务后台运行（最多 ${data.concurrency || 5} 个并发`
+      + (data.queued ? `，${data.queued} 个排队` : '') + '）')
     startBatchPolling()
   } catch (e) {
     ElMessage.error(e.message)

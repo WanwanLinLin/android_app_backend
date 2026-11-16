@@ -103,21 +103,24 @@ async def _run_task_async(id: int, background: BackgroundTasks, admin: dict = De
     return GeneticResponse(msg="已提交后台运行")
 
 
-# 一键测试：把当前用户可见的全部测试任务依次【后台串行】运行（插件逐个
-# 真实调用，任务间也不并发，避免打爆被测服务）。单进程内存态记进度，
-# 前端轮询 status 展示 x/y；与单任务运行、定时运行共用 _running 互斥。
+# 一键测试：把当前用户可见的全部测试任务【后台】运行，最多同时
+# BATCH_CONCURRENCY 个并发、其余排队（信号量按提交顺序 FIFO 排队）。
+# 单进程内存态记进度，前端轮询 status 展示 x/y 与正在运行的任务名；
+# 与单任务运行、定时运行共用 _running 互斥。
+BATCH_CONCURRENCY = 5
 _batch: dict = {"running": False, "total": 0, "done": 0, "ok": 0, "fail": 0,
-                "skipped": 0, "current": None}
+                "skipped": 0, "current": None, "current_list": [],
+                "concurrency": BATCH_CONCURRENCY}
 
 
-@router.post("/v1/llmTest/task/runAll", summary="一键运行全部测试任务（后台串行）", tags=["通用接口"])
+@router.post("/v1/llmTest/task/runAll", summary="一键运行全部测试任务（后台，最多5并发）", tags=["通用接口"])
 async def _run_all_tasks(background: BackgroundTasks, admin: dict = Depends(current_admin)):
     if _batch["running"]:
         return GeneticResponse(code=400, msg="一键测试批次正在运行中，请等待本批完成")
     is_adm = is_admin(admin)
     data = await get_task_list(is_adm, admin["id"])
-    # 可见即可运行（admin 可跑别人的，与单任务 run 口径一致）；正在被
-    # 手动/定时运行的跳过，不排队等锁
+    # 可见即可运行（admin 可跑别人的，与单任务 run 口径一致）；提交时已被
+    # 手动/定时占用的直接跳过，不占排队名额
     targets, skipped = [], 0
     for r in data["rows"]:
         if r["id"] in _running or r.get("schedule_status") == "running":
@@ -128,21 +131,30 @@ async def _run_all_tasks(background: BackgroundTasks, admin: dict = Depends(curr
         return GeneticResponse(code=400, msg="没有可运行的测试任务（不存在或全部正在运行中）")
     from utils.plugin_test.runner import run_task
     from utils.getLogs import scheduled_task_logger
+    import asyncio
 
     # 先置位再提交：接口返回到后台任务启动之间不允许第二个批次插入
     # （事件循环内 check-and-set 无 await，天然原子）
     _batch.update({"running": True, "total": len(targets), "done": 0, "ok": 0,
-                   "fail": 0, "skipped": skipped, "current": None})
+                   "fail": 0, "skipped": skipped, "current": None, "current_list": []})
 
     async def _wrap():
-        try:
-            for tid, tname in targets:
-                if tid in _running:  # 提交后才被单点/定时占用的，跳过
+        sem = asyncio.Semaphore(BATCH_CONCURRENCY)
+        current = set()  # 正在运行的任务名（<= concurrency 个）
+
+        def _sync_current():
+            _batch["current_list"] = sorted(current)
+            _batch["current"] = "、".join(_batch["current_list"]) or None
+
+        async def _one(tid, tname):
+            async with sem:
+                if tid in _running:  # 排队期间被单点/定时占用的，跳过
                     _batch["skipped"] += 1
                     _batch["done"] += 1
-                    continue
+                    return
                 _running.add(tid)
-                _batch["current"] = tname
+                current.add(tname)
+                _sync_current()
                 try:
                     report = await run_task(tid, trigger="manual")
                     summary = report.get("summary") or {}
@@ -151,15 +163,23 @@ async def _run_all_tasks(background: BackgroundTasks, admin: dict = Depends(curr
                     _batch["fail"] += 1
                     scheduled_task_logger.error(f"LLM自动化测试 一键运行任务#{tid}失败: {e}")
                 finally:
+                    current.discard(tname)
                     _running.discard(tid)
                     _batch["done"] += 1
-                    _batch["current"] = None
+                    _sync_current()
+
+        try:
+            await asyncio.gather(*(_one(tid, tname) for tid, tname in targets))
         finally:
             _batch["running"] = False
 
     background.add_task(_wrap)
-    return GeneticResponse(data={"total": len(targets), "skipped": skipped},
-                           msg=f"已提交 {len(targets)} 个任务后台依次运行")
+    queued = max(len(targets) - BATCH_CONCURRENCY, 0)
+    return GeneticResponse(data={"total": len(targets), "skipped": skipped,
+                                 "concurrency": BATCH_CONCURRENCY, "queued": queued},
+                           msg=(f"已提交 {len(targets)} 个任务后台运行"
+                                f"（最多 {BATCH_CONCURRENCY} 个并发"
+                                + (f"，{queued} 个排队" if queued else "") + "）"))
 
 
 @router.get("/v1/llmTest/runAll/status", summary="一键测试批次进度", tags=["通用接口"])

@@ -16,6 +16,9 @@
 敏感键判定（归一化：转小写、剔除非字母数字后做子串匹配）：
   - 含 "apikey"：apikey / api_key / X-Api-Key / apikey_secret …
   - 含 "authorization"：authorization / proxy_authorization …
+  - 含 "url"（2026-11-16 起）：url / params.url / base_url / callback_url /
+    stream_asr_url … 接口地址同样不对外可见；编辑表单未改动时提交 "***"，
+    保存层同 apikey 一样按库中原值回填。
 递归处理嵌套 dict（params.headers.Authorization 等）。值为 None/空串时保留
 原值不掩码（避免把"未配置"显示成 "***" 误导）。
 """
@@ -29,7 +32,7 @@ def _normalized_key(key) -> str:
 
 def is_secret_key(key) -> bool:
     n = _normalized_key(key)
-    return "apikey" in n or "authorization" in n
+    return "apikey" in n or "authorization" in n or "url" in n
 
 
 def mask_secrets(obj):
