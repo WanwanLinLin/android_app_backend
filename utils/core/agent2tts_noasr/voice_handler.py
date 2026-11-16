@@ -83,7 +83,8 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
             continue
         all_reply = ""
         current_sentence = ""
-        conn.dialogue_history.append({"role": "user", "content": question})
+        interrupted = False
+        conn.append_dialogue("user", question)
         start_time = time.perf_counter()
         async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history, conn=conn):
             chunk_nums += 1
@@ -106,7 +107,10 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
                     current_sentence = ""
             if conn.status == WebsocketConnectionEvent.TALKING.value:
                 await websocket.send_json({"type": "finish"})
-                conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
+                conn.append_dialogue(WebsocketServerEvent.ASSISTANT.value, all_reply)
+                # 与 webrtc_aec3 模板同款修复：break 只出 async for，尾部若再
+                # append 会产生 user+assistant+assistant 重复轮次污染上下文。
+                interrupted = True
                 chunk_nums = 0
                 sentence_len = 10
                 LOG("LLM 回复被打断...", "DEBUG")
@@ -114,7 +118,8 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
         # 处理剩余语句
         if current_sentence:
             conn.push_tts_task({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
-        conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+        if not interrupted:
+            conn.append_dialogue("assistant", all_reply)
         await websocket.send_json({"type": WebsocketServerEvent.FINISH.value})
         conn.push_tts_task({"task_type": ServerInternalEvent.LLM_DONE.value})
         chunk_nums = 0

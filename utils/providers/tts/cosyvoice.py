@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 import json
@@ -69,3 +70,14 @@ class TTSProvider(TTSProviderBase):
                 LOG(f"error: 合成 {text} 报错：{e}。重试第 {nums} 次。", "DEBUG")
                 # return 0
                 continue
+            finally:
+                # 临时 PCM 用完即删：_save_path（原始 24k）与 save_path（重采样
+                # 16k）都只服务本次合成，返回路径供日志但上游不落库、不消费
+                # （minimax/vllm_omni 走 TTScache 才需保留）。此前从不删除，
+                # CACHE/tts 目录随对话无限增长；成功/异常/重试路径统一在
+                # finally 清理（return 后 finally 仍执行，2026-11-11）。
+                for _p in (_save_path, save_path):
+                    try:
+                        os.remove(_p)
+                    except OSError:
+                        pass

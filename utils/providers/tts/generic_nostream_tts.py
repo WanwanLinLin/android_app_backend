@@ -1,3 +1,4 @@
+import os
 import re
 import time
 import uuid
@@ -142,3 +143,12 @@ class TTSProvider(TTSProviderBase):
                 LOG(f"error: 合成 {text} 报错：{e}。重试第 {nums} 次。", "DEBUG")
                 # return 0
                 continue
+            finally:
+                # 与 cosyvoice 同款：原始/重采样两份临时 PCM 只服务本次合成，
+                # 成功与失败路径统一删除（return 后 finally 仍执行），
+                # CACHE/tts 不再无限增长（2026-11-11）
+                for _p in (_save_path, save_path):
+                    try:
+                        os.remove(_p)
+                    except OSError:
+                        pass

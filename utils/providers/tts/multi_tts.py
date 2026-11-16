@@ -67,9 +67,11 @@ class TTSProvider(TTSProviderBase):
         for i in range(5):
             nums += 1
             start_time = time.perf_counter()
-            _save_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".pcm"
-            save_path = config_data["CACHE"]["tts"] + "16k_" + str(uuid.uuid4()) + ".pcm"
-            if not text: return save_path
+            # 2026-11-11 移除两个从未使用的临时路径变量：本插件只按语种分诊，
+            # 真正合成由下方子引擎完成（临时文件由各子引擎自管），旧代码在此
+            # 凭空拼 uuid 路径易误导为「本插件落盘」；空文本直接返回即可，
+            # 返回值上游（tts_process_monitor）并不消费
+            if not text: return None
             # 语种优先级由写入顺序保证：每轮 ASR 先写 conn.current_language，
             # 大模型（如 ljz_workflow meta 事件）随后覆盖 → 合成时 LLM 语种优先生效
             lang_key = self.match_language(conn.current_language, self.additional_param)

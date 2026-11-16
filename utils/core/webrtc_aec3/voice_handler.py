@@ -152,6 +152,19 @@ class ConnectionObjectCustomAec3:
         self.tts_pending_queue.appendleft(task)
         self.tts_pending_event.set()
 
+    # 对话历史上限：数字人终端可能全天在线，dialogue_history 此前无上限，
+    # 上下文无限增长 → 内存与每轮 LLM token 成本线性上涨。保留最近 60 条
+    # （约 30 轮），从最旧端淘汰（每轮定长追加 user+assistant 成对，偶数
+    # 上限保证淘汰后仍是完整轮次）。
+    DIALOGUE_HISTORY_MAX = 60
+
+    def append_dialogue(self, role: str, content: str):
+        """dialogue_history 唯一追加入口：追加并按 DIALOGUE_HISTORY_MAX 截尾。"""
+        self.dialogue_history.append({"role": role, "content": content})
+        overflow = len(self.dialogue_history) - self.DIALOGUE_HISTORY_MAX
+        if overflow > 0:
+            del self.dialogue_history[:overflow]
+
 
 # ============================================================
 # Binary framing constants (must match client)
@@ -324,7 +337,8 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
             continue
         all_reply = ""
         current_sentence = ""
-        conn.dialogue_history.append({"role": "user", "content": question})
+        interrupted = False
+        conn.append_dialogue("user", question)
         start_time = time.perf_counter()
         async for _text in conn.llm_engine.response(conn.session_id, conn.dialogue_history, conn=conn):
             chunk_nums += 1
@@ -348,7 +362,12 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
                     current_sentence = ""
             if conn.status == WebsocketConnectionEvent.TALKING.value:
                 await websocket.send_json({"type": "finish"})
-                conn.dialogue_history.append({"role": WebsocketServerEvent.ASSISTANT.value, "content": all_reply})
+                conn.append_dialogue(WebsocketServerEvent.ASSISTANT.value, all_reply)
+                # 打断：此处已落库本轮部分回复。此前的 break 只跳出 async for，
+                # 控制权回到下面的"处理剩余语句"，尾部再 append 一次 assistant，
+                # 历史变成 user+assistant+assistant 重复轮次，污染后续上下文
+                # （2026-11-11 修复：置 interrupted，尾部不再重复追加）。
+                interrupted = True
                 chunk_nums = 0
                 sentence_len = 15
                 LOG("LLM 回复被打断...", "DEBUG")
@@ -356,7 +375,8 @@ async def agent_process_monitor(websocket: WebSocket, conn: ConnectionObjectCust
         # 处理剩余语句
         if current_sentence:
             conn.push_tts_task({"task_type": ServerInternalEvent.TTS.value, "text": current_sentence})
-        conn.dialogue_history.append({"role": "assistant", "content": all_reply})
+        if not interrupted:
+            conn.append_dialogue("assistant", all_reply)
         await websocket.send_json({"type": WebsocketServerEvent.FINISH.value})
         conn.push_tts_task({"task_type": ServerInternalEvent.LLM_DONE.value})
         chunk_nums = 0

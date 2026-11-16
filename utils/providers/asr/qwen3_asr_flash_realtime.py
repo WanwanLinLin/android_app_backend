@@ -131,13 +131,11 @@ class ASRProvider(ASRProviderBase):
                         "type": "input_audio_buffer.commit"
                         }))
                         conn.status = WebsocketConnectionEvent.IDLE.value
-                        file_path = config_data["CACHE"]["tts"] + str(uuid.uuid4()) + ".wav"
-                        pcm_data = conn.previous_frame_list + conn.all_asr_data
-                        # with wave.open(file_path, "wb") as wf:
-                        #     wf.setnchannels(1)
-                        #     wf.setsampwidth(2)
-                        #     wf.setframerate(16000)
-                        #     wf.writeframes(b"".join(pcm_data))
+                        # 2026-11-11 移除死代码：本实时引擎的识别结果由阿里云
+                        # 链路自己推送，recognize_asr_file 在本分支从不被 gather，
+                        # asr_pending_queue 无消费者——旧代码每次判尾都往队列塞
+                        # 一个从未落盘的 wav 路径（写盘早被注释掉），全天在线
+                        # 终端队列无限增长。
                         conn.client_voice_stop = True
                         conn.collect_previous = True
                         conn.client_have_voice = False
@@ -145,7 +143,6 @@ class ASRProvider(ASRProviderBase):
                         conn.previous_frame_list = []
                         conn.last_chunk_sentence = ""
                         conn.all_point = 0
-                        conn.asr_pending_queue.put_nowait(file_path)
                         conn.client_voice_window.clear()
 
                 if client_have_voice:

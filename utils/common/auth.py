@@ -24,8 +24,20 @@ class OnewayEncryption:
         token = self.get_sha1(text)
         return token
     
+    # 时间戳允许的时钟超前余量（毫秒）：终端与服务器时钟不可能严格同步，
+    # 留 5s 容忍，避免略超前的设备被判无效
+    CLOCK_SKEW_TOLERANCE_MS = 5000
+
     def verify_token(self, time_stamp, token):
-        if (int(time.time() * 1000) - int(time_stamp)) > 50000: return 0
+        # 两个方向都要校验：原先只判「过期」，未来时间戳（含负数）差值为负
+        # 恒 <= 50000 直接通过，等于时间窗校验形同虚设（2026-11-11 修复）。
+        # 无法解析的时间戳一律拒绝。
+        try:
+            delta = int(time.time() * 1000) - int(time_stamp)
+        except (TypeError, ValueError):
+            return 0
+        if delta > 50000: return 0
+        if delta < -self.CLOCK_SKEW_TOLERANCE_MS: return 0
         r = redis.Redis(connection_pool=serect_pool)
         # lrange 一次取回全部 key：原先 llen + 逐条 lindex 是 N+1 次往返，
         # 每个终端连接/请求都要付一遍 RTT
