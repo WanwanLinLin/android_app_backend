@@ -279,3 +279,65 @@ class DigitalHumanChatTemplate(Base):
     update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
     is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
     status = shelf_status()
+
+class PluginTestTask(Base):
+    """LLM 自动化测试任务——批量测试 LLM 个性插件的联通性与输出质量。
+
+    一次运行 = 对 plugin_ids 中每个插件，在同一会话里按 test_prompts
+    顺序逐轮提问（最多 10 轮），收集全部对话后按 rules 校验（contains /
+    not_contains / regex / llm_judge，其中 llm_judge 把完整对话记录交给
+    config.yaml generic_llm 的判定模型），结果汇总成报告（last_report）
+    并支持导出 PDF 下载。
+
+    归属沿用个性插件的严格私有口径：owner_id 恒为创建者本人，仅本人
+    可改/删/运行；admin 列表可见全部（治理用途）。
+
+    定时运行（每日重复）：schedule_enabled=True 且 schedule_status=
+    pending 且 schedule_time 到点后，由后台调度器领取（原子置 running）
+    执行一次，完成后 schedule_time 自动顺延一天并回到 pending；关闭
+    定时则置 canceled。schedule_time 为 naive 北京时间，与 beijing_now()
+    同口径。
+    """
+    __tablename__ = "PluginTestTask"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False, comment="任务名称")
+    desc = Column(String(256), default=None, comment="任务描述")
+    plugin_ids = Column(JSON, default=None, comment="待测 LLM 个性插件 id 列表（CustomPlugin.id）")
+    test_prompt = Column(Text, default=None, comment="旧版单轮测试问题（已由 test_prompts 取代，兼容保留）")
+    test_prompts = Column(JSON, default=None, comment="多轮测试问题列表（同一会话按序提问，最多10轮）")
+    rules = Column(JSON, default=None, comment="结果校验规则列表 [{type,value}]，针对全部对话内容校验，空=只测联通性")
+    schedule_enabled = Column(Boolean, default=False, comment="是否启用定时运行（每天重复）")
+    schedule_time = Column(DateTime, default=None, comment="下次计划运行时间（北京时间；每次跑完自动顺延一天）")
+    schedule_status = Column(String(16), default=None, comment="定时状态：pending|running|canceled（done 为旧一次性遗留）")
+    last_run_time = Column(DateTime, default=None, comment="最近一次运行时间")
+    last_trigger = Column(String(16), default=None, comment="最近一次触发方式：manual|scheduled")
+    last_summary = Column(JSON, default=None, comment="最近一次结果汇总 {total,ok,fail}")
+    last_report = Column(JSON, default=None, comment="最近一次完整测试结果（含各插件输出与校验明细）")
+    owner_id = Column(Integer, index=True, default=None, comment="创建者 User.id（严格私有，恒为本人）")
+    create_time = Column(DateTime, default=lambda: beijing_now())
+    update_time = Column(DateTime, default=lambda: beijing_now(), onupdate=lambda: beijing_now())
+    is_delete = Column(Boolean, index=True, default=False, comment="该条记录是否已被删除")
+
+
+class PluginTestRun(Base):
+    """LLM 自动化测试的历史运行记录——每次运行（手动/定时）留档一条。
+
+    PluginTestTask.last_report 只保留「最近一次」，本表负责全量历史：
+    按任务分页查看、回看任意一次的完整报告、下载对应 PDF。
+    report 是运行时刻的完整快照（含当时的规则/问题/逐轮输出），任务
+    配置后续被改也不影响历史记录的回看。task_name 冗余存储，任务删除
+    后历史仍可追溯（删任务不删历史）。
+    归属随任务（严格私有）：owner_id 与任务创建者一致；admin 可见全部。
+    """
+    __tablename__ = "PluginTestRun"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, index=True, nullable=False, comment="所属 PluginTestTask.id（无外键约束）")
+    task_name = Column(String(128), default=None, comment="任务名称快照（任务删除后历史可读）")
+    trigger = Column(String(16), default=None, comment="触发方式：manual|scheduled")
+    run_time = Column(DateTime, index=True, default=lambda: beijing_now(), comment="运行时间（北京时间）")
+    summary = Column(JSON, default=None, comment="结果汇总 {total,ok,fail}")
+    report = Column(JSON, default=None, comment="该次完整测试报告快照")
+    owner_id = Column(Integer, index=True, default=None, comment="任务创建者 User.id（随任务）")
+    create_time = Column(DateTime, default=lambda: beijing_now())

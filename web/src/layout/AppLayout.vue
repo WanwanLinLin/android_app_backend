@@ -39,6 +39,14 @@
         </el-menu-item>
       </el-menu>
 
+      <div class="menu-caption">插件测试</div>
+      <el-menu :default-active="activeMenu" router class="menu">
+        <el-menu-item index="/llmAutoTest">
+          <el-icon><Aim /></el-icon>
+          <span>LLM自动化测试</span>
+        </el-menu-item>
+      </el-menu>
+
       <div class="aside-foot">
         <div class="foot-dot"></div>
         <span>{{ today }}</span>
@@ -78,7 +86,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Cpu, OfficeBuilding, MagicStick,
-  Document, Location, SwitchButton, ChatLineSquare, Grid
+  Document, Location, SwitchButton, ChatLineSquare, Grid, Aim
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { logout } from '@/api'

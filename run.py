@@ -1,6 +1,7 @@
 from fastapi.staticfiles import StaticFiles
 
 import traceback
+from contextlib import asynccontextmanager
 from fastapi.responses import JSONResponse
 import uvicorn
 from fastapi import FastAPI
@@ -19,10 +20,21 @@ from modules.base_plugin.views import router as base_plugin_router
 from modules.custom_plugin.views import router as custom_plugin_router
 from modules.session.views import router as session_router
 from modules.connect_check.views import router as connect_check_router
+from modules.llm_test.views import router as llm_test_router
 from utils.apierror import AdminRequiredError, JwtAuthError
 from utils.getLogs import LOG
 
-app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # LLM 自动化测试定时调度器：uvicorn 事件循环内的后台协程，无额外线程
+    from utils.plugin_test.scheduler import start_scheduler
+    start_scheduler()
+    yield
+
+
+app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1",
+              lifespan=lifespan)
 
 app.add_middleware(
         CORSMiddleware,
@@ -44,6 +56,7 @@ app.include_router(base_plugin_router)
 app.include_router(custom_plugin_router)
 app.include_router(session_router)
 app.include_router(connect_check_router)
+app.include_router(llm_test_router)
 
 
 @app.exception_handler(JwtAuthError)

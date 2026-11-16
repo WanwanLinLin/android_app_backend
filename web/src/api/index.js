@@ -79,3 +79,23 @@ export const customPluginGet = (id) => http.get(`/v1/customPlugin/get/${id}`)
 export const customPluginAdd = (payload) => http.post('/v1/customPlugin/add', payload)
 export const customPluginUpdate = (id, payload) => http.post(`/v1/customPlugin/update/${id}`, payload)
 export const customPluginDelete = (id) => http.post(`/v1/customPlugin/delete/${id}`)
+
+// ===================== LLM 自动化测试（插件测试模块）=====================
+// 任务 CRUD 走通用超时；run 是同步执行（逐插件真实调用），单独放大超时到 10 分钟
+export const llmTestTaskList = () => http.get('/v1/llmTest/task/list')
+export const llmTestTaskGet = (id) => http.get(`/v1/llmTest/task/get/${id}`)
+export const llmTestTaskAdd = (payload) => http.post('/v1/llmTest/task/add', payload)
+export const llmTestTaskUpdate = (id, payload) => http.post(`/v1/llmTest/task/update/${id}`, payload)
+export const llmTestTaskDelete = (id) => http.post(`/v1/llmTest/task/delete/${id}`)
+export const llmTestTaskRun = (id) => http.post(`/v1/llmTest/task/run/${id}`, null, { timeout: 600000 })
+// PDF 下载：blob 响应（拦截器对无 code 字段的响应原样返回）
+export const llmTestReportPdf = (id) => http.get(`/v1/llmTest/task/report/${id}/pdf`, { responseType: 'blob' })
+
+// 一键测试：全部任务后台串行运行，提交后轮询进度
+export const llmTestRunAll = () => http.post('/v1/llmTest/task/runAll')
+export const llmTestRunAllStatus = () => http.get('/v1/llmTest/runAll/status')
+
+// 历史测试记录：每次运行留档，可回看任意一次的完整报告与 PDF
+export const llmTestTaskRuns = (id, params) => http.get(`/v1/llmTest/task/runs/${id}`, { params })
+export const llmTestRunGet = (runId) => http.get(`/v1/llmTest/run/get/${runId}`)
+export const llmTestRunPdf = (runId) => http.get(`/v1/llmTest/run/${runId}/pdf`, { responseType: 'blob' })
