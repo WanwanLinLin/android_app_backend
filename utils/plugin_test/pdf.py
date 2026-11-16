@@ -20,8 +20,13 @@ from reportlab.platypus import (KeepTogether, Paragraph, SimpleDocTemplate,
 # (路径, TTC 子字体号)。字体实测结论：系统 Noto Sans CJK 是 CFF/PostScript
 # 轮廓，reportlab 的 TTFont 直接报错；DroidSansFallbackFull 能注册但子集化后
 # 丢 ASCII 字形（数字/英文全空白）。arphic ukai 中英混排完整，为首选。
+# 线上后端跑在无系统字体的容器里，项目 assets/fonts/ 下的副本作为兜底
+# （该目录在容器挂载卷内，容器重建不丢）。
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 FONT_CANDIDATES = (
     ("/usr/share/fonts/truetype/arphic/ukai.ttc", 0),
+    (os.path.join(_REPO_ROOT, "assets", "fonts", "ukai.ttc"), 0),
     ("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", None),
 )
 
@@ -44,7 +49,8 @@ def _resolve_font() -> str:
             return name
         except Exception:
             continue
-    raise RuntimeError("服务器缺少可用的中文字体（arphic ukai / Droid Sans Fallback），无法生成中文 PDF 报告")
+    raise RuntimeError("服务器缺少可用的中文字体（系统 arphic ukai / 项目 assets/fonts/ukai.ttc / "
+                       "Droid Sans Fallback 均未找到），无法生成中文 PDF 报告")
 
 
 def _esc(text) -> str:
