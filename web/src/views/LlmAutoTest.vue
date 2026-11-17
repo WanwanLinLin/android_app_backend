@@ -66,6 +66,7 @@
           <template #default="{ row }">
             <template v-if="row.schedule_enabled && row.schedule_status === 'pending'">
               <el-tag size="small" type="primary" effect="light">每天 {{ (row.schedule_time || '').slice(11, 16) }}</el-tag>
+              <el-tag v-if="row.notify_dingtalk" size="small" type="success" effect="plain">钉钉</el-tag>
             </template>
             <el-tag v-else-if="row.schedule_status === 'running'" size="small" type="warning" effect="light">运行中</el-tag>
             <el-tag v-else-if="row.schedule_enabled" size="small" type="info" effect="light">已暂停</el-tag>
@@ -181,6 +182,15 @@
                           style="margin-left: 12px; width: 160px" />
           <div class="field-hint" style="width: 100%">
             每天重复任务：每天到该时刻后台自动运行一次，首次运行为最近的一个该时刻。{{ editingScheduleTip }}
+          </div>
+        </el-form-item>
+
+        <el-form-item label="钉钉播报">
+          <el-switch v-model="form.notify_dingtalk" />
+          <div class="field-hint" style="width: 100%">
+            定时运行结束后，把测试结果（通过/失败及各插件失败原因）推送到钉钉群；
+            群地址由后台 config.yaml 的 subscribe_address 配置。手动「立即运行 /
+            一键测试」属调试行为，不会推送。
           </div>
         </el-form-item>
       </el-form>
@@ -369,7 +379,8 @@ const submitting = ref(false)
 const editingId = ref(null)
 const editingStatus = ref(null)
 const form = reactive({ name: '', desc: '', plugin_ids: [], test_prompts: [''],
-                        rules: [], schedule_enabled: false, daily_time: null })
+                        rules: [], schedule_enabled: false, daily_time: null,
+                        notify_dingtalk: true })
 const editingScheduleTip = computed(() => editingId.value
   ? (editingStatus.value === 'running' ? '该任务正在定时运行中，稍后再改。' : '') : '保存后每天到点自动执行。')
 
@@ -377,7 +388,8 @@ function openAdd() {
   editingId.value = null
   editingStatus.value = null
   Object.assign(form, { name: '', desc: '', plugin_ids: [], test_prompts: [''],
-                        rules: [], schedule_enabled: false, daily_time: null })
+                        rules: [], schedule_enabled: false, daily_time: null,
+                        notify_dingtalk: true })
   formVisible.value = true
 }
 
@@ -389,6 +401,7 @@ function openEdit(row) {
     name: row.name, desc: row.desc || '', plugin_ids: [...(row.plugin_ids || [])],
     test_prompts: prompts, rules: (row.rules || []).map((r) => ({ ...r })),
     schedule_enabled: !!row.schedule_enabled,
+    notify_dingtalk: row.notify_dingtalk !== false,
     daily_time: row.schedule_time ? row.schedule_time.slice(11, 19) : null })
   formVisible.value = true
 }
@@ -414,7 +427,8 @@ async function submitForm() {
     name: form.name, desc: form.desc || null, plugin_ids: form.plugin_ids,
     test_prompts: prompts, rules,
     schedule_enabled: form.schedule_enabled,
-    schedule_time: form.schedule_enabled ? firstDailyTime(form.daily_time) : null }
+    schedule_time: form.schedule_enabled ? firstDailyTime(form.daily_time) : null,
+    notify_dingtalk: !!form.notify_dingtalk }
   submitting.value = true
   try {
     if (editingId.value) {

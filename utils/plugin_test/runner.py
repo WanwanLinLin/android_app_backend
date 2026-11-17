@@ -320,10 +320,14 @@ async def run_task(task_id: int, trigger: str = "manual"):
         if not task or task.is_delete:
             raise ValueError(f"测试任务 #{task_id} 不存在")
         name = task.name
+        # task_desc 供钉钉播报展示（用户口径：群里展示"描述"而非任务名）
+        desc = task.desc
         plugin_ids = list(task.plugin_ids or [])
         prompts = task_prompts(task)
         rules = list(task.rules or [])
         owner_id = task.owner_id
+        # 报告带上播报开关快照：历史回看/播报判定都按当时的配置，不受后续改动影响
+        notify_dingtalk = task.notify_dingtalk is not False
 
     items = []
     for pid in plugin_ids:
@@ -367,10 +371,11 @@ async def run_task(task_id: int, trigger: str = "manual"):
     ok_cnt = sum(1 for i in items if i["ok"])
     run_time = beijing_now().strftime("%Y-%m-%d %H:%M:%S")
     report = {
-        "task_id": task_id, "task_name": name, "trigger": trigger,
+        "task_id": task_id, "task_name": name, "task_desc": desc, "trigger": trigger,
         "run_time": run_time,
         "prompts": prompts,
         "rules": rules,
+        "notify_dingtalk": notify_dingtalk,
         "items": items,
         "summary": {"total": len(items), "ok": ok_cnt, "fail": len(items) - ok_cnt},
     }

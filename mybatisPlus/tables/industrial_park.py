@@ -297,6 +297,11 @@ class PluginTestTask(Base):
     执行一次，完成后 schedule_time 自动顺延一天并回到 pending；关闭
     定时则置 canceled。schedule_time 为 naive 北京时间，与 beijing_now()
     同口径。
+
+    钉钉播报：notify_dingtalk 控制定时运行的结果是否推送到钉钉群
+    （地址 config.yaml THIRD_PARTY_SERVICES -> subscribe_address，
+    播报逻辑见 utils/plugin_test/notify）。只有定时运行会播——手动
+    「立即运行 / 一键测试」是调试行为，不刷群。
     """
     __tablename__ = "PluginTestTask"
 
@@ -310,6 +315,7 @@ class PluginTestTask(Base):
     schedule_enabled = Column(Boolean, default=False, comment="是否启用定时运行（每天重复）")
     schedule_time = Column(DateTime, default=None, comment="下次计划运行时间（北京时间；每次跑完自动顺延一天）")
     schedule_status = Column(String(16), default=None, comment="定时状态：pending|running|canceled（done 为旧一次性遗留）")
+    notify_dingtalk = Column(Boolean, default=True, comment="定时运行结果是否播报到钉钉群（手动运行一律不播；地址见 config.yaml subscribe_address）")
     last_run_time = Column(DateTime, default=None, comment="最近一次运行时间")
     last_trigger = Column(String(16), default=None, comment="最近一次触发方式：manual|scheduled")
     last_summary = Column(JSON, default=None, comment="最近一次结果汇总 {total,ok,fail}")

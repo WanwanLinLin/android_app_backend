@@ -16,6 +16,7 @@ class AddLlmTestTaskModel(BaseModel):
     rules: Union[List[RuleModel], None] = None
     schedule_enabled: Union[bool, None] = None
     schedule_time: Union[str, None] = None  # "YYYY-MM-DD HH:MM:SS"（北京时间，首次运行；之后每天重复）
+    notify_dingtalk: Union[bool, None] = None  # 定时运行结果播报到钉钉群，不传=开启
 
 
 class UpdateLlmTestTaskModel(BaseModel):
@@ -26,3 +27,4 @@ class UpdateLlmTestTaskModel(BaseModel):
     rules: Union[List[RuleModel], None] = None
     schedule_enabled: Union[bool, None] = None
     schedule_time: Union[str, None] = None
+    notify_dingtalk: Union[bool, None] = None

@@ -28,6 +28,8 @@ def _serialize(t: PluginTestTask, mine: bool = True) -> dict:
             "schedule_enabled": bool(t.schedule_enabled),
             "schedule_time": t.schedule_time.strftime("%Y-%m-%d %H:%M:%S") if t.schedule_time else None,
             "schedule_status": t.schedule_status,
+            # 存量行可能在加列前为 NULL，视为开启（与建表默认一致）
+            "notify_dingtalk": t.notify_dingtalk is not False,
             "last_run_time": t.last_run_time.strftime("%Y-%m-%d %H:%M:%S") if t.last_run_time else None,
             "last_trigger": t.last_trigger, "last_summary": t.last_summary,
             "owner_id": t.owner_id,
@@ -165,7 +167,10 @@ async def create_task(user_id: int, **kwargs):
                                test_prompts=prompts or None,
                                rules=kwargs.get("rules") or [],
                                schedule_enabled=enabled, schedule_time=stime,
-                               schedule_status=status, owner_id=user_id,
+                               schedule_status=status,
+                               # 新建默认开启钉钉播报（仅定时运行结果会播）
+                               notify_dingtalk=kwargs.get("notify_dingtalk") is not False,
+                               owner_id=user_id,
                                is_delete=False)
             session.add(t)
             await session.flush()
@@ -203,7 +208,8 @@ async def update_task(id: int, admin: bool, user_id: int, **kwargs):
                 old_time=t.schedule_time, old_status=t.schedule_status)
             if err:
                 return GeneticResponse(code=400, msg=err)
-            for k in ("name", "desc", "plugin_ids", "test_prompts", "test_prompt", "rules"):
+            for k in ("name", "desc", "plugin_ids", "test_prompts", "test_prompt", "rules",
+                      "notify_dingtalk"):
                 if k in kwargs:
                     setattr(t, k, kwargs[k])
             t.schedule_enabled, t.schedule_time, t.schedule_status = enabled, stime, status
@@ -300,6 +306,23 @@ async def get_run(run_id: int, admin: bool, user_id: int):
         if owner != user_id and not admin:
             return None, "无权查看该记录"
         return _run_serialize(r, full=True), None
+
+
+async def get_task_notify_info(id: int):
+    """钉钉异常告警用：取 (任务名, 任务描述, 是否播报)。不存在返回 (None, None, None)。
+
+    与 get_one_task 不同——不做权限判断（后台调度器内部使用），存量行
+    notify_dingtalk 为 NULL 视为开启。多列查询必须用 execute().first() 取
+    Row：session.scalar() 会把结果降为首列标量（字符串），届时 t[0] 只是
+    任务名的第一个字符，开关判断会永远为真。
+    """
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(
+            select(PluginTestTask.name, PluginTestTask.desc, PluginTestTask.notify_dingtalk)
+            .where(PluginTestTask.id == id))).first()
+        if not row:
+            return None, None, None
+        return row[0], row[1], row[2] is not False
 
 
 async def reschedule_task(id: int):

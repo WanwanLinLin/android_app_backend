@@ -11,6 +11,11 @@
 服务重启时残留 running 行保持原样（不回滚、不自动补跑——避免重启风暴
 重复调用外部服务），由用户在后台改时间重新排队。
 
+结果播报：定时运行完成后把报告交给 notify.notify_report 推送钉钉群
+（任务开了 notify_dingtalk 才播，地址见 config.yaml subscribe_address）；
+运行抛异常时改发 notify.notify_failure 异常告警。播报自身失败只落日志，
+不影响顺延。手动运行不经调度器，天然不播报。
+
 日志统一走 utils.getLogs.scheduled_task_logger。
 """
 import asyncio
@@ -27,6 +32,7 @@ async def _loop():
     # 延迟导入：避免 run.py 导入链上 mybatisPlus ↔ utils 相互引用放大
     from mybatisPlus.plugin_test_orm import claim_due_tasks, reschedule_task
     from utils.plugin_test.runner import run_task
+    from utils.plugin_test.notify import notify_report, notify_failure
 
     while True:
         try:
@@ -34,10 +40,12 @@ async def _loop():
             for tid in claimed:
                 scheduled_task_logger.info(f"LLM自动化测试 每日定时任务 #{tid} 开始运行")
                 try:
-                    await run_task(tid, trigger="scheduled")
+                    report = await run_task(tid, trigger="scheduled")
                     scheduled_task_logger.info(f"LLM自动化测试 每日定时任务 #{tid} 运行完成，顺延至次日")
+                    await notify_report(report)
                 except Exception as e:
                     scheduled_task_logger.error(f"LLM自动化测试 每日定时任务 #{tid} 运行失败: {e}")
+                    await notify_failure(tid, e)
                 finally:
                     await reschedule_task(tid)
         except asyncio.CancelledError:
