@@ -28,6 +28,7 @@ class KbDataset(Base):
     parser_id = Column(String(32), default="General", comment="默认切片方法（对齐 ragflow parser_id），文档未单独指定时继承")
     chunk_token_num = Column(Integer, default=256, comment="分块目标 token 数")
     similarity_threshold = Column(Float, default=0.2, comment="检索相似度阈值")
+    rerank_limit = Column(Integer, default=64, comment="检索候选命中上限（融合截断/rerank 条数，8~256）")
     vector_similarity_weight = Column(Float, default=0.3, comment="融合打分中向量分量权重（其余为全文 BM25 归一权重）")
     doc_num = Column(Integer, default=0, comment="文档数（冗余计数）")
     chunk_num = Column(Integer, default=0, comment="chunk 数（冗余计数）")

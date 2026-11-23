@@ -240,6 +240,12 @@
               <el-slider v-model="cfg.similarity_threshold" :min="0" :max="1" :step="0.05"
                          :disabled="!canManage" style="width:260px" />
             </el-form-item>
+            <el-form-item label="命中候选数">
+              <el-select v-model="cfg.rerank_limit" :disabled="!canManage" style="width:160px">
+                <el-option v-for="n in [32, 48, 64]" :key="n" :value="n" :label="`${n} 条`" />
+              </el-select>
+              <span class="muted" style="margin-left:12px">参与融合/重排的候选上限（越大越全但越慢）</span>
+            </el-form-item>
             <el-form-item label="关键词相似度权重">
               <el-slider v-model="cfg.term_weight" :min="0" :max="1" :step="0.05"
                          :disabled="!canManage" style="width:260px" />
@@ -519,7 +525,7 @@ async function doRetrieval() {
 // ---------------- 配置 ----------------
 const savingCfg = ref(false)
 const cfg = reactive({ name: '', desc: '', parser_id: 'General', chunk_token_num: 256,
-                       similarity_threshold: 0.2, term_weight: 0.7 })
+                       similarity_threshold: 0.2, term_weight: 0.7, rerank_limit: 64 })
 
 watch(kb, (v) => {
   if (!v) return
@@ -527,6 +533,7 @@ watch(kb, (v) => {
     name: v.name, desc: v.desc || '', parser_id: v.parser_id || 'General',
     chunk_token_num: v.chunk_token_num,
     similarity_threshold: v.similarity_threshold,
+    rerank_limit: [32, 48, 64].includes(v.rerank_limit) ? v.rerank_limit : 64,
     term_weight: Math.round((1 - (v.vector_similarity_weight ?? 0.3)) * 100) / 100 })
 }, { immediate: true })
 
@@ -538,6 +545,7 @@ async function saveConfig() {
       name: cfg.name.trim(), desc: cfg.desc, parser_id: cfg.parser_id,
       chunk_token_num: cfg.chunk_token_num,
       similarity_threshold: cfg.similarity_threshold,
+      rerank_limit: cfg.rerank_limit,
       vector_similarity_weight: Math.round((1 - cfg.term_weight) * 100) / 100 })
     ElMessage.success('已保存')
     loadKb()

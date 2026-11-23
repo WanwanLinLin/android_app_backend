@@ -11,6 +11,7 @@ class AddKbModel(BaseModel):
     similarity_threshold: Union[float, None] = 0.2
     vector_similarity_weight: Union[float, None] = 0.3
     parser_id: Union[str, None] = "General"  # 默认切片方法（文档未单独指定时继承）
+    rerank_limit: Union[int, None] = 64  # 检索命中候选上限（8~256）
 
 
 class UpdateKbModel(BaseModel):
@@ -20,6 +21,7 @@ class UpdateKbModel(BaseModel):
     similarity_threshold: Union[float, None] = None
     vector_similarity_weight: Union[float, None] = None
     parser_id: Union[str, None] = None
+    rerank_limit: Union[int, None] = None
 
 
 class DocAvailableModel(BaseModel):

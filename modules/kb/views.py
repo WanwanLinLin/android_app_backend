@@ -284,7 +284,8 @@ async def _retrieval(info: schema.KbRetrievalModel, admin: dict = Depends(curren
         if not _can_read(admin, kb):
             return _NOT_OWNER
         kb_metas.append({"kb_id": kb_id, "dim": kb["embd_dim"],
-                         "vsw": kb["vector_similarity_weight"]})
+                         "vsw": kb["vector_similarity_weight"],
+                         "rl": kb.get("rerank_limit")})
     dims = {m["dim"] for m in kb_metas}
     if len(dims) > 1:
         return GeneticResponse(code=400, msg="所选知识库向量维度不一致，无法联合检索")
@@ -322,7 +323,8 @@ async def _owner_kb_metas(key: dict, kb_ids=None):
             if not _can_manage(actor, kb):  # 对外严格：只认归属者本人，不含 admin 放宽
                 return None, GeneticResponse(code=403, msg=f"知识库 #{kb_id} 不属于该 API Key")
             metas.append({"kb_id": kb_id, "dim": kb["embd_dim"],
-                          "vsw": kb["vector_similarity_weight"]})
+                          "vsw": kb["vector_similarity_weight"],
+                          "rl": kb.get("rerank_limit")})
         return metas, None
     ds = await kb_orm.list_datasets(admin_id=key["created_by"], is_admin=False)
     metas = [{"kb_id": d["id"], "dim": d["embd_dim"],

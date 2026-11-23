@@ -47,9 +47,11 @@ async def _rerank(question: str, docs: list, top_len: int) -> dict | None:
 
 async def retrieval(question: str, kb_metas: list, page: int = 1, size: int = 10,
                     similarity_threshold: float = None,
-                    vector_similarity_weight: float = None) -> dict:
-    """kb_metas: [{"kb_id":..,"dim":..,"vsw":..}]（同一维度才可跨库联查，视图层保证）。
+                    vector_similarity_weight: float = None,
+                    rerank_limit: int = None) -> dict:
+    """kb_metas: [{"kb_id":..,"dim":..,"vsw":..,"rl":..}]（同一维度才可跨库联查，视图层保证）。
 
+    rerank_limit（命中候选上限）优先用入参，其次取各库配置的最大值，兜底 64。
     返回 {"chunks":[...], "total":n, "vector_similarity_weight":...}
     """
     if not kb_metas or not (question or "").strip():
@@ -64,7 +66,13 @@ async def retrieval(question: str, kb_metas: list, page: int = 1, size: int = 10
         vs = [m.get("vsw") for m in kb_metas if m.get("vsw") is not None]
         vsw = sum(vs) / len(vs) if vs else 0.3
     thr = similarity_threshold if similarity_threshold is not None else 0.2
-    rerank_limit = 64
+    # 命中候选上限：入参 > 各库配置(取最大) > config kb.rerank.limit > 64，
+    # 最终归一到 32/48/64 三档（就近取档）
+    if rerank_limit is None:
+        rls = [m.get("rl") for m in kb_metas if m.get("rl")]
+        cfg_rl = (kb_cfg().get("rerank") or {}).get("limit")
+        rerank_limit = max(rls) if rls else (cfg_rl or 64)
+    rerank_limit = min((32, 48, 64), key=lambda x: (abs(x - int(rerank_limit)), x))
 
     q_tokens = build_query_string(question)
     # 召回阶段多取：BM25/KNN 各 rerank_limit*2，融合后截断

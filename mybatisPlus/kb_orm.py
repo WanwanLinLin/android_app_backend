@@ -17,6 +17,18 @@ def _alive(m):
     return (m.is_delete.is_(None)) | (m.is_delete.is_(False))
 
 
+RERANK_LIMITS = (32, 48, 64)  # 命中候选数只开放这三档
+
+
+def _clamp_rerank_limit(v) -> int:
+    """命中候选数归一到 32/48/64 三档（非法值就近取档，空值兜底 64）。"""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return 64
+    return min(RERANK_LIMITS, key=lambda x: (abs(x - n), x))
+
+
 def _ser_dataset(d: KbDataset) -> dict:
     return {"id": d.id, "name": d.name, "desc": d.desc, "created_by": d.created_by,
             "owner_name": d.owner_name,
@@ -24,6 +36,7 @@ def _ser_dataset(d: KbDataset) -> dict:
             "parser_id": d.parser_id or "General",
             "chunk_token_num": d.chunk_token_num,
             "similarity_threshold": d.similarity_threshold,
+            "rerank_limit": d.rerank_limit or 64,
             "vector_similarity_weight": d.vector_similarity_weight,
             "doc_num": d.doc_num or 0, "chunk_num": d.chunk_num or 0,
             "token_num": d.token_num or 0,
@@ -52,7 +65,8 @@ async def create_dataset(user_id: int, name: str, desc=None, embd_id=None,
                          similarity_threshold: float = 0.2,
                          vector_similarity_weight: float = 0.3,
                          parser_id: str = "General",
-                         owner_name: str = None):
+                         owner_name: str = None,
+                         rerank_limit: int = 64):
     async with AsyncSessionLocal() as session:
         # 库按创建者私有：同名查重仅限本人库内，不同用户可建同名库
         dup = await session.scalar(select(KbDataset).where(
@@ -64,7 +78,8 @@ async def create_dataset(user_id: int, name: str, desc=None, embd_id=None,
                       embd_dim=embd_dim, chunk_token_num=chunk_token_num,
                       similarity_threshold=similarity_threshold,
                       vector_similarity_weight=vector_similarity_weight,
-                      parser_id=parser_id or "General")
+                      parser_id=parser_id or "General",
+                      rerank_limit=_clamp_rerank_limit(rerank_limit))
         session.add(d)
         await session.commit()
         await session.refresh(d)
@@ -97,8 +112,11 @@ async def update_dataset(kb_id: int, owner_id: int = None, is_admin: bool = Fals
     # embd_id/embd_dim 建库后不可改（换嵌入模型必须重解析全部文档，暂不开放）
     allowed = {k: v for k, v in payload.items()
                if k in ("name", "desc", "chunk_token_num", "parser_id",
-                        "similarity_threshold", "vector_similarity_weight")
+                        "similarity_threshold", "vector_similarity_weight",
+                        "rerank_limit")
                and v is not None}
+    if "rerank_limit" in allowed:
+        allowed["rerank_limit"] = _clamp_rerank_limit(allowed["rerank_limit"])
     if not allowed:
         return GeneticResponse(code=400, msg="没有可更新的字段")
     async with AsyncSessionLocal() as session:
