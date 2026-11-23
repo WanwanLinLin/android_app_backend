@@ -10,6 +10,8 @@ from mybatisPlus.tenant_orm import (create_tenant, list_tenants, get_tenant,
 from utils.auth import JwtAccessToken, validate_accesskey
 from utils.common.auth import validate_stream_accesskey
 from utils.admin_auth import current_admin, is_admin
+from utils.api_key_auth import generate_key
+from mybatisPlus import api_key_orm
 from setting import config_data
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
@@ -194,3 +196,45 @@ async def _set_source_default(tenant_id: int, info: schema.BindSourceModel,
     if denied: return denied
     return await set_source_default(tenant_id, info.type, info.reference_id,
                                     admin=is_admin(admin), user_id=admin["id"])
+
+
+# ===================== 账号级 API Key（模块无关，各模块开放接口共用）=====================
+# Key 归属创建者账号：外部系统凭 Bearer sk-xxx 调用各模块开放接口（当前有
+# 知识库 /v1/kb/open/*），数据范围 = 归属者本人可见的数据。
+# 明文仅生成响应返回一次；admin 可见全部归属但只能操作自己的（与个性插件口径一致）。
+
+@router.get("/v1/user/apikey/list", summary="API Key 列表", tags=["账号设置"])
+async def _apikey_list(admin: dict = Depends(current_admin)):
+    return GeneticResponse(data=await api_key_orm.list_api_keys(
+        admin["id"], is_admin_user=is_admin(admin)))
+
+
+@router.post("/v1/user/apikey/add", summary="生成 API Key（明文仅返回一次）", tags=["账号设置"])
+async def _apikey_add(info: schema.AddApiKeyModel, admin: dict = Depends(current_admin)):
+    plain, key_hash, prefix = generate_key()
+    r = await api_key_orm.create_api_key(admin["id"], admin.get("username"),
+                                         (info.name or "").strip() or "默认密钥",
+                                         key_hash, prefix)
+    if r.code == 200 and r.data:
+        r.data = {**r.data, "api_key": plain}  # 明文仅此响应可见
+    return r
+
+
+@router.post("/v1/user/apikey/status/{key_id}", summary="启用/停用 API Key", tags=["账号设置"])
+async def _apikey_status(key_id: int, status: int, admin: dict = Depends(current_admin)):
+    rec = await api_key_orm.get_api_key(key_id)
+    if not rec:
+        return GeneticResponse(code=400, msg="API Key 不存在")
+    if rec["created_by"] != admin["id"] and not is_admin(admin):
+        return GeneticResponse(code=403, msg="只能操作自己的 API Key")
+    return await api_key_orm.set_api_key_status(key_id, 1 if status == 1 else 0)
+
+
+@router.post("/v1/user/apikey/delete/{key_id}", summary="删除 API Key", tags=["账号设置"])
+async def _apikey_delete(key_id: int, admin: dict = Depends(current_admin)):
+    rec = await api_key_orm.get_api_key(key_id)
+    if not rec:
+        return GeneticResponse(code=400, msg="API Key 不存在")
+    if rec["created_by"] != admin["id"] and not is_admin(admin):
+        return GeneticResponse(code=403, msg="只能操作自己的 API Key")
+    return await api_key_orm.soft_delete_api_key(key_id)

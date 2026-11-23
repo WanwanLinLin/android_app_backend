@@ -136,3 +136,4 @@ class TimeLoggerRolloverHandler(TimedRotatingFileHandler):
 
 generic_tts_logger = TimeLoggerRolloverHandler.get_log("generic", "TTS")
 scheduled_task_logger = TimeLoggerRolloverHandler.get_log("generic", "ScheduledTask")
+kb_logger = TimeLoggerRolloverHandler.get_log("generic", "knowledgebase")

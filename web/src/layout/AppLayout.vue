@@ -47,6 +47,14 @@
         </el-menu-item>
       </el-menu>
 
+      <div class="menu-caption">知识库</div>
+      <el-menu :default-active="activeMenu" router class="menu">
+        <el-menu-item index="/kb/ragflow">
+          <el-icon><Notebook /></el-icon>
+          <span>ragflow</span>
+        </el-menu-item>
+      </el-menu>
+
       <div class="aside-foot">
         <div class="foot-dot"></div>
         <span>{{ today }}</span>
@@ -60,10 +68,25 @@
           <span class="title">{{ $route.meta.title || '' }}</span>
         </div>
         <div class="user-area">
-          <el-avatar :size="32" class="avatar">{{ (auth.username || '?').slice(0, 1).toUpperCase() }}</el-avatar>
-          <span class="uname">{{ auth.username }}</span>
-          <el-tag v-if="auth.isAdmin" size="small" type="warning" effect="light" round>管理员</el-tag>
-          <el-tag v-else-if="auth.role" size="small" type="info" effect="light" round>{{ auth.role }}</el-tag>
+          <el-dropdown trigger="click" @command="onUserCommand" popper-class="user-menu-popper">
+            <div class="user-trigger">
+              <el-avatar :size="32" class="avatar">{{ (auth.username || '?').slice(0, 1).toUpperCase() }}</el-avatar>
+              <span class="uname">{{ auth.username }}</span>
+              <el-tag v-if="auth.isAdmin" size="small" type="warning" effect="light" round>管理员</el-tag>
+              <el-tag v-else-if="auth.role" size="small" type="info" effect="light" round>{{ auth.role }}</el-tag>
+              <el-icon class="caret"><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="settings">
+                  <el-icon><Setting /></el-icon>设置
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  <el-icon><SwitchButton /></el-icon>退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button size="small" round plain type="danger" @click="onLogout">
             <el-icon style="margin-right:4px"><SwitchButton /></el-icon>退出
           </el-button>
@@ -86,7 +109,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Cpu, OfficeBuilding, MagicStick,
-  Document, Location, SwitchButton, ChatLineSquare, Grid, Aim
+  Document, Location, SwitchButton, ChatLineSquare, Grid, Aim, Notebook, Setting, ArrowDown
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { logout } from '@/api'
@@ -96,9 +119,11 @@ const route = useRoute()
 const router = useRouter()
 
 // 租户资源页（/tenants/:id/resources）高亮「租户管理」
-const activeMenu = computed(() =>
-  route.path.startsWith('/tenants') ? '/tenants' : route.path
-)
+const activeMenu = computed(() => {
+  if (route.path.startsWith('/tenants')) return '/tenants'
+  if (route.path.startsWith('/kb/ragflow')) return '/kb/ragflow'
+  return route.path
+})
 
 const today = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long'
@@ -106,6 +131,12 @@ const today = new Date().toLocaleDateString('zh-CN', {
 
 // 本地 role 可能是旧值（历史登录未存、或管理员改过角色），进后台时向后端对齐一次
 onMounted(() => { auth.refreshMe() })
+
+// 头像下拉菜单：设置 / 退出登录
+function onUserCommand(cmd) {
+  if (cmd === 'settings') router.push('/settings')
+  else if (cmd === 'logout') onLogout()
+}
 
 async function onLogout() {
   try { await logout() } catch (e) { /* 忽略登出接口异常，本地照常清理 */ }
@@ -163,6 +194,15 @@ async function onLogout() {
 .crumb-ic { color: #6366f1; }
 .header .title { font-size: 16.5px; font-weight: 650; color: #23283b; letter-spacing: 0.3px; }
 .user-area { display: flex; align-items: center; gap: 10px; }
+.user-trigger {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 4px 8px; border-radius: 10px; outline: none;
+  transition: background 0.18s ease;
+}
+.user-trigger:hover { background: rgba(99, 102, 241, 0.07); }
+/* el-dropdown 会在触发区外再包一层 focusable span，对齐交给外层 flex */
+.user-area :deep(.el-tooltip__trigger) { display: flex; align-items: center; outline: none; }
+.caret { color: #9aa1b5; font-size: 12px; }
 .avatar {
   background: var(--dh-gradient); color: #fff; font-weight: 700;
   box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);

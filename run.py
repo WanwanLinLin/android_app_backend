@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from setting import config_data
+from setting import config_data, get_service
 from threading import Thread
 from modules.user.views import router as user_router
 from modules.tts.views import router as tts_router
@@ -21,6 +21,7 @@ from modules.custom_plugin.views import router as custom_plugin_router
 from modules.session.views import router as session_router
 from modules.connect_check.views import router as connect_check_router
 from modules.llm_test.views import router as llm_test_router
+from modules.kb.views import router as kb_router
 from utils.apierror import AdminRequiredError, JwtAuthError
 from utils.getLogs import LOG
 
@@ -30,7 +31,21 @@ async def lifespan(app: FastAPI):
     # LLM 自动化测试定时调度器：uvicorn 事件循环内的后台协程，无额外线程
     from utils.plugin_test.scheduler import start_scheduler
     start_scheduler()
+    # 知识库：中断解析恢复 + ES 连接预热（失败不阻断启动）
+    try:
+        from utils.kb.tasks import recover_interrupted
+        await recover_interrupted()
+    except Exception as e:
+        from utils.getLogs import kb_logger
+        kb_logger.error(f"kb 启动恢复失败: {e}")
     yield
+    try:
+        from utils.kb.es_client import close_es
+        from utils.kb.minio_client import close_client
+        await close_es()
+        await close_client()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="数字人对话通用接口文档", docs_url="/digitalhuman/api/v1",
@@ -57,6 +72,7 @@ app.include_router(custom_plugin_router)
 app.include_router(session_router)
 app.include_router(connect_check_router)
 app.include_router(llm_test_router)
+app.include_router(kb_router)
 
 
 @app.exception_handler(JwtAuthError)
@@ -89,4 +105,5 @@ async def global_exception_handler(request, exc: Exception):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=config_data["SERVICES"][0]["port"])
+    # 端口固定在 common 段（历史 SERVICES[0] 位置索引在 2026-11-23 新增 kb 段后已错位）
+    uvicorn.run(app, host="0.0.0.0", port=get_service("common")["port"])

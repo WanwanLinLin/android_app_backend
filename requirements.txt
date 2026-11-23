@@ -92,5 +92,12 @@ yarl==1.24.2
 zope.event==6.2
 zope.interface==8.6
 
+# 知识库模块（modules/kb + utils/kb，2026-11-23）
+elasticsearch==8.12.1
+miniopy-async==1.23.6
+jieba==0.42.1
+pypdf>=5.0.0,<6.0.0
+python-docx>=1.1.2,<2.0.0
+
 # 本地 whl 安装，不在 PyPI：pip install 3rd/fireredvad-1.0.0-cp312-cp312-manylinux2014_x86_64.whl
 # fireredvad==1.0.0

@@ -99,3 +99,34 @@ export const llmTestRunAllStatus = () => http.get('/v1/llmTest/runAll/status')
 export const llmTestTaskRuns = (id, params) => http.get(`/v1/llmTest/task/runs/${id}`, { params })
 export const llmTestRunGet = (runId) => http.get(`/v1/llmTest/run/get/${runId}`)
 export const llmTestRunPdf = (runId) => http.get(`/v1/llmTest/run/${runId}/pdf`, { responseType: 'blob' })
+
+// ===================== 知识库（ragflow，自研模块：ES 混合检索 + MinIO + 向量化）=====================
+export const kbEmbeddingModels = () => http.get('/v1/kb/embeddingModels')
+export const kbParserMethods = () => http.get('/v1/kb/parserMethods')
+export const kbList = () => http.get('/v1/kb/list')
+export const kbGet = (id) => http.get(`/v1/kb/get/${id}`)
+export const kbAdd = (payload) => http.post('/v1/kb/add', payload)
+export const kbUpdate = (id, payload) => http.post(`/v1/kb/update/${id}`, payload)
+export const kbDelete = (id) => http.post(`/v1/kb/delete/${id}`)
+export const kbDocList = (kbId, params) => http.get(`/v1/kb/${kbId}/document/list`, { params })
+// 上传走 multipart；解析为后台任务，前端轮询 document/list 的 run/progress
+export const kbDocUpload = (kbId, formData) =>
+  http.post(`/v1/kb/${kbId}/document/upload`, formData, { timeout: 120000 })
+// parser_id 走查询参数（后端 Form 兼容 query），不传则继承知识库默认切片方法
+export const kbDocUploadWithParser = (kbId, formData, parserId) =>
+  http.post(`/v1/kb/${kbId}/document/upload${parserId ? `?parser_id=${encodeURIComponent(parserId)}` : ''}`,
+    formData, { timeout: 120000 })
+export const kbDocParse = (docId) => http.post(`/v1/kb/document/parse/${docId}`)
+export const kbDocParser = (docId, parserId) => http.post(`/v1/kb/document/parser/${docId}`, { parser_id: parserId })
+export const kbDocAvailable = (docId, available) => http.post(`/v1/kb/document/available/${docId}`, { available })
+export const kbDocDelete = (docId) => http.post(`/v1/kb/document/delete/${docId}`)
+export const kbChunkList = (kbId, params) => http.get(`/v1/kb/${kbId}/chunk/list`, { params })
+// 检索为同步接口（含 embedding 往返），超时放宽
+export const kbRetrieval = (payload) => http.post('/v1/kb/retrieval', payload, { timeout: 60000 })
+
+// 对外 API Key 管理（JWT 鉴权，用户管理自己的 key）
+// 账号级 API Key（模块无关，各模块开放接口共用，管理挂 user 下）
+export const apiKeyList = () => http.get('/v1/user/apikey/list')
+export const apiKeyAdd = (payload) => http.post('/v1/user/apikey/add', payload)
+export const apiKeyStatus = (id, status) => http.post(`/v1/user/apikey/status/${id}?status=${status}`)
+export const apiKeyDelete = (id) => http.post(`/v1/user/apikey/delete/${id}`)

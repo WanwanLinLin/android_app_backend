@@ -16,7 +16,10 @@ const routes = [
       { path: 'chatTemplate', name: 'chatTemplate', component: () => import('@/views/ResourceList.vue'), props: { resType: 'CHATTEMPLATE' }, meta: { title: '对话模板' } },
       { path: 'basePlugins', name: 'basePlugins', component: () => import('@/views/BasePlugins.vue'), meta: { title: '基础插件' } },
       { path: 'customPlugins', name: 'customPlugins', component: () => import('@/views/CustomPlugins.vue'), meta: { title: '个性插件' } },
-      { path: 'llmAutoTest', name: 'llmAutoTest', component: () => import('@/views/LlmAutoTest.vue'), meta: { title: 'LLM自动化测试' } }
+      { path: 'llmAutoTest', name: 'llmAutoTest', component: () => import('@/views/LlmAutoTest.vue'), meta: { title: 'LLM自动化测试' } },
+      { path: 'kb/ragflow', name: 'kbRagflow', component: () => import('@/views/KnowledgeBase.vue'), meta: { title: '知识库 · ragflow' } },
+      { path: 'kb/ragflow/:kbId', name: 'kbDetail', component: () => import('@/views/KnowledgeBaseDetail.vue'), meta: { title: '知识库详情' } },
+      { path: 'settings', name: 'settings', component: () => import('@/views/Settings.vue'), meta: { title: '设置' } }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/tenants' }
