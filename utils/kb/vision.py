@@ -66,6 +66,10 @@ _DEFAULTS = {
 }
 
 
+class ParseCancelled(Exception):
+    """解析被用户取消（tasks.py 定义取消检查、捕获处理；本模块只在检查点抛出）。"""
+
+
 def vision_cfg(override: dict = None) -> dict:
     """kb.vision 配置段合并默认值（可整段缺省），再叠加知识库级覆盖。
 
@@ -127,7 +131,7 @@ def _png_b64(data: bytes, max_side: int) -> str:
 
 
 def describe_photos(photos: list, kb_vision: dict = None,
-                    progress_cb=None) -> tuple:
+                    progress_cb=None, cancel_cb=None) -> tuple:
     """对一批内嵌照片跑 VLM 理解（DOCX 等无页概念文档复用，同 PDF 第 3 层）。
 
     photos: [{"uid": 唯一标识, "label": 正文标记名(如 图1),
@@ -137,6 +141,8 @@ def describe_photos(photos: list, kb_vision: dict = None,
       images    与 PDF extract_pdf_vision 的 images 同构（附 salt 后由
                 tasks.py 上传配图、attach_image_ids 回填 img_id）
     视觉未启用返回 ([], [])；单图失败跳过。
+    cancel_cb: 无参可调用，返回 True 表示用户已取消——每个 VLM 项发起前检查，
+    命中即抛 ParseCancelled（asyncio.run 收尾会取消在途请求）。
     """
     cfg = vision_cfg(kb_vision)
     if not cfg["enabled"] or not cfg["llm"] or not cfg["photo_describe"]:
@@ -172,13 +178,19 @@ def describe_photos(photos: list, kb_vision: dict = None,
                     pass
 
         async def one(i, ph, b64):
+            if cancel_cb and cancel_cb():
+                raise ParseCancelled()
             async with sem:
+                if cancel_cb and cancel_cb():
+                    raise ParseCancelled()
                 try:
                     desc = await _vlm(conf, _DESCRIBE_PROMPT, b64,
                                       int(cfg["photo_max_tokens"]),
                                       cfg["page_timeout"])
                     if desc:
                         out[i] = (ph, desc)
+                except ParseCancelled:
+                    raise
                 except Exception as e:
                     fails[0] += 1
                     kb_logger.error(f"kb 视觉照片({ph.get('label')})失败: {e}")
@@ -213,7 +225,8 @@ def _page_likely_blank(doc, pno: int) -> bool:
         return True
 
 
-def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None) -> list:
+def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None,
+                       cancel_cb=None) -> list:
     """同步入口（在 asyncio.to_thread 中执行）。返回 (pages, images)：
 
     pages   按页组织：[{"page": 1-based, "ocr": "整页转录" 或 None,
@@ -223,6 +236,8 @@ def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None) ->
 
     progress_cb(done, total) 由工作线程回调，实现方需自行保证线程安全（如只写
     共享 dict）。kb_vision 为知识库级 vision_config（覆盖全局 page_ocr / photo_describe）。
+    cancel_cb: 无参可调用，返回 True 表示用户已取消——每个 VLM 项发起前检查，
+    命中即抛 ParseCancelled。
     """
     cfg = vision_cfg(kb_vision)
     if not cfg["enabled"] or not cfg["llm"]:
@@ -326,7 +341,11 @@ def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None) ->
                     pass
 
         async def one_ocr(pno):
+            if cancel_cb and cancel_cb():
+                raise ParseCancelled()
             async with sem:
+                if cancel_cb and cancel_cb():
+                    raise ParseCancelled()
                 try:
                     pm = await loop.run_in_executor(
                         None, lambda p=pno: doc[p].get_pixmap(dpi=int(cfg["dpi"])))
@@ -342,7 +361,11 @@ def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None) ->
                 _emit()
 
         async def one_photo(idx, xref, pno, b64, raw, ext):
+            if cancel_cb and cancel_cb():
+                raise ParseCancelled()
             async with sem:
+                if cancel_cb and cancel_cb():
+                    raise ParseCancelled()
                 try:
                     desc = await _vlm(conf, _DESCRIBE_PROMPT, b64,
                                       int(cfg["photo_max_tokens"]), cfg["page_timeout"])
@@ -353,6 +376,8 @@ def extract_pdf_vision(data: bytes, progress_cb=None, kb_vision: dict = None) ->
                                                   "uid": f"p{pno + 1}_{xref}",
                                                   "page": pno + 1, "xref": xref,
                                                   "ext": ext, "data": raw}}
+                except ParseCancelled:
+                    raise
                 except Exception as e:
                     fails[0] += 1
                     kb_logger.error(f"kb 视觉照片(第{pno + 1}页 xref={xref})失败: {e}")

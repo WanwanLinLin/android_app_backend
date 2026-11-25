@@ -6,6 +6,12 @@
   - 网络 IO（embedding、ES、MinIO）本身异步
   - 全局信号量限制同时解析文档数，防 embedding/ES 被打爆
 重解析语义：先删该文档旧 chunk 再全量写入（chunk 计数按新旧差值回写库级）。
+
+取消解析：视图层 request_cancel() 置本次任务的取消标志（协作式）。解析中的
+to_thread 线程不可强杀，故在视觉逐项/逐页、配图上传、向量化批次、ES 写入前
+等检查点主动退出（解析线程内的 VLM 项在标志置位后不再发起新请求，在途的最
+多 concurrency 个完成后丢弃）。取消后文档状态置失败（run=-1，消息「已取消解
+析」），用户可直接重解析。
 """
 import asyncio
 import time
@@ -15,9 +21,14 @@ from utils.kb import es_client, minio_client
 from utils.kb.embedding import embed_texts
 from utils.kb.parser import attach_image_ids, extract_text, photo_key, split_chunks
 from utils.kb.es_client import kb_cfg
+from utils.kb.vision import ParseCancelled
 
 _sem: asyncio.Semaphore | None = None
 _tasks: set = set()  # 持有任务引用防 GC
+# doc_id -> 本次解析任务的取消标志盒。每次 parse_document 创建新盒并登记（覆盖
+# 旧盒，避免「取消→立刻重解析」时新旧任务串扰）；旧任务线程读自己闭包里的盒，
+# 不受覆盖影响。
+_cancel_boxes: dict = {}
 
 
 def _get_sem() -> asyncio.Semaphore:
@@ -35,30 +46,57 @@ def spawn_parse(doc_id: int):
     return t
 
 
+def request_cancel(doc_id: int) -> bool:
+    """请求取消该文档的解析（视图层调用）。返回是否找到在跑的解析任务。
+
+    调用方负责把 DB 状态置为失败；本函数只让解析任务在下一个检查点退出，
+    防止其继续跑完并覆写状态/写 ES。"""
+    box = _cancel_boxes.get(doc_id)
+    if box is None:
+        return False
+    box["cancelled"] = True
+    return True
+
+
+def _check_cancelled(box: dict):
+    """解析任务内部检查点：命中取消标志即抛 ParseCancelled 中止。"""
+    if box["cancelled"]:
+        raise ParseCancelled()
+
+
 async def parse_document(doc_id: int):
     from mybatisPlus import kb_orm
 
-    async with _get_sem():
-        doc = await kb_orm.get_document(doc_id)
-        if not doc:
-            kb_logger.error(f"kb 解析任务找不到文档 #{doc_id}")
-            return
-        kb = await kb_orm.get_dataset(doc["kb_id"])
-        if not kb:
-            await kb_orm.set_document_parse_state(doc_id, -1, -1, "知识库不存在")
-            return
-        embd_id, dim = kb["embd_id"], kb["embd_dim"]
-        chunk_num_cfg = (doc.get("parser_config") or {}).get("chunk_token_num") \
-            or kb["chunk_token_num"] or 256
-        parser_id = doc.get("parser_id") or "General"
-        try:
+    # 盒在等信号量之前登记：排队中（run=0）也能被取消
+    box = {"cancelled": False}
+    _cancel_boxes[doc_id] = box  # 覆盖旧盒：取消永远针对「当前在跑」的解析
+
+    def _cancelled() -> bool:
+        return box["cancelled"]
+
+    try:
+        async with _get_sem():
+            _check_cancelled(box)
+            doc = await kb_orm.get_document(doc_id)
+            if not doc:
+                kb_logger.error(f"kb 解析任务找不到文档 #{doc_id}")
+                return
+            kb = await kb_orm.get_dataset(doc["kb_id"])
+            if not kb:
+                await kb_orm.set_document_parse_state(doc_id, -1, -1, "知识库不存在")
+                return
+            embd_id, dim = kb["embd_id"], kb["embd_dim"]
+            chunk_num_cfg = (doc.get("parser_config") or {}).get("chunk_token_num") \
+                or kb["chunk_token_num"] or 256
+            parser_id = doc.get("parser_id") or "General"
             await kb_orm.set_document_parse_state(doc_id, 1, 0.05, "读取文件…")
             data = await minio_client.get_object(doc["location"])
 
             await kb_orm.set_document_parse_state(doc_id, 1, 0.2, "解析文本…")
             text, v_images = await asyncio.to_thread(extract_text, data, doc["file_type"],
                                                      _vision_progress_cb(doc_id),
-                                                     kb.get("vision_config"))
+                                                     kb.get("vision_config"), _cancelled)
+            _check_cancelled(box)
             chunks = await asyncio.to_thread(split_chunks, text, chunk_num_cfg, parser_id)
             # 照片原图传对象存储作为 chunk 配图（单张失败仅丢该图，不阻断解析）。
             # 每次解析换随机 salt：取图接口无鉴权（<img> 无法带头），靠不可猜
@@ -71,6 +109,7 @@ async def parse_document(doc_id: int):
                     img["salt"] = salt
                 await minio_client.remove_prefix(f"kb/{doc['kb_id']}/doc/{doc_id}/")
                 for img in v_images:
+                    _check_cancelled(box)
                     key = photo_key(doc["kb_id"], doc_id, img)
                     try:
                         await minio_client.put_object(
@@ -97,11 +136,13 @@ async def parse_document(doc_id: int):
             vectors = []
             step = 16
             for i in range(0, len(texts), step):
+                _check_cancelled(box)
                 vectors.extend(await embed_texts(texts[i:i + step], embd_id))
                 prog = 0.3 + 0.6 * min(1.0, (i + step) / len(texts))
                 await kb_orm.set_document_parse_state(doc_id, 1, round(prog, 2),
                                                       f"向量化 {min(i + step, len(texts))}/{len(texts)}")
 
+            _check_cancelled(box)
             await kb_orm.set_document_parse_state(doc_id, 1, 0.95, "写入索引…")
             now = time.time()
             docs = [{
@@ -120,12 +161,22 @@ async def parse_document(doc_id: int):
             await kb_orm.set_document_parse_state(
                 doc_id, 3, 1.0, f"完成：{len(chunks)} chunks")
             kb_logger.info(f"kb 文档 #{doc_id}（{doc['name']}）解析完成，{len(chunks)} chunks")
-        except Exception as e:
-            kb_logger.error(f"kb 文档 #{doc_id} 解析失败: {e}")
-            try:
-                await kb_orm.set_document_parse_state(doc_id, -1, -1, f"解析失败：{e}")
-            except Exception:
-                pass
+    except ParseCancelled:
+        # 用户取消（取消接口已把状态置为失败「已取消解析」，这里不再写库，
+        # 避免「取消后立即重解析」时旧任务覆写新任务状态）。不写 ES，直接结束；
+        # 本次解析盒由 finally 统一清理。
+        kb_logger.info(f"kb 文档 #{doc_id} 解析已取消")
+        return
+    except Exception as e:
+        kb_logger.error(f"kb 文档 #{doc_id} 解析失败: {e}")
+        try:
+            await kb_orm.set_document_parse_state(doc_id, -1, -1, f"解析失败：{e}")
+        except Exception:
+            pass
+    finally:
+        # 清盒仅当仍是本次的盒（取消后立即重解析时，dict 里已是新盒，不误删）
+        if _cancel_boxes.get(doc_id) is box:
+            _cancel_boxes.pop(doc_id, None)
 
 
 def _vision_progress_cb(doc_id: int):

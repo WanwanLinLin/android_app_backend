@@ -50,16 +50,17 @@ _LAW_ARTICLE_RE = re.compile(r"^\s*第[零〇一二三四五六七八九十百�
 
 
 def extract_text(data: bytes, ext: str, vision_progress=None,
-                 kb_vision=None) -> tuple:
+                 kb_vision=None, cancel_cb=None) -> tuple:
     """返回 (text, images)。images 为内嵌照片清单（PDF/DOCX 且视觉开启时非空），
-    见 vision.extract_pdf_vision / _extract_docx；txt/md 恒为空。"""
+    见 vision.extract_pdf_vision / _extract_docx；txt/md 恒为空。
+    cancel_cb 透传给视觉解析：用户取消时抛 utils.kb.vision.ParseCancelled。"""
     ext = (ext or "").lower()
     if ext in ("txt", "md"):
         return data.decode("utf-8", errors="ignore"), []
     if ext == "pdf":
-        return _extract_pdf(data, vision_progress, kb_vision)
+        return _extract_pdf(data, vision_progress, kb_vision, cancel_cb)
     if ext == "docx":
-        return _extract_docx(data, vision_progress, kb_vision)
+        return _extract_docx(data, vision_progress, kb_vision, cancel_cb)
     raise ValueError(f"不支持的文件类型: {ext}")
 
 
@@ -99,7 +100,8 @@ def attach_image_ids(chunks: list, kb_id, doc_id, images: list) -> list:
     return out
 
 
-def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
+def _extract_docx(data: bytes, vision_progress=None, kb_vision=None,
+                  cancel_cb=None) -> tuple:
     """DOCX 抽取：python-docx 段落+表格（原行为）；视觉开启时叠加内嵌照片
     理解（Word 是文本性格式，无整页转录需求，只走照片理解+配图）。
 
@@ -117,7 +119,7 @@ def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
                 parts.append("\t".join(cells))
     text = "\n".join(parts)
 
-    from utils.kb.vision import describe_photos, vision_cfg
+    from utils.kb.vision import ParseCancelled, describe_photos, vision_cfg
     vcfg = vision_cfg(kb_vision)
     if not (vcfg.get("enabled") and vcfg.get("llm") and vcfg.get("photo_describe")):
         return text, []
@@ -150,7 +152,10 @@ def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
 
     try:
         annotated, images = describe_photos(photos, kb_vision=kb_vision,
-                                            progress_cb=vision_progress)
+                                            progress_cb=vision_progress,
+                                            cancel_cb=cancel_cb)
+    except ParseCancelled:
+        raise  # 用户取消：不能按「视觉失败降级」吞掉
     except Exception as e:
         from utils.getLogs import kb_logger
         kb_logger.error(f"kb DOCX 视觉解析失败，仅按文本入库: {e}")
@@ -159,15 +164,17 @@ def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
     return "\n".join([text] + tail) if tail else text, images
 
 
-def _extract_pdf(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
+def _extract_pdf(data: bytes, vision_progress=None, kb_vision=None,
+                 cancel_cb=None) -> tuple:
     """PDF 抽取。视觉关闭：pypdf 全文（原行为）；开启：逐页文本层与视觉
     输出（整页转录/照片描述）按页交错拼接。
 
     视觉开启时文本层改用 pymupdf：逐页对齐需要页粒度抽取（pypdf 也支持但
     pymupdf 保真更好，实测可避开 pypdf 的 1mm→lmm 字形误读）。
     kb_vision 为知识库级 vision_config，可覆盖全局 page_ocr/photo_describe。
+    cancel_cb 透传给视觉解析，用户取消时抛 ParseCancelled（不降级、直接上抛）。
     """
-    from utils.kb.vision import vision_cfg
+    from utils.kb.vision import ParseCancelled, vision_cfg
     vcfg = vision_cfg(kb_vision)
     if not (vcfg.get("enabled") and vcfg.get("llm")):
         from pypdf import PdfReader
@@ -187,7 +194,10 @@ def _extract_pdf(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
     from utils.kb.vision import extract_pdf_vision
     try:
         vpages, vimages = extract_pdf_vision(data, progress_cb=vision_progress,
-                                             kb_vision=kb_vision)
+                                             kb_vision=kb_vision,
+                                             cancel_cb=cancel_cb)
+    except ParseCancelled:
+        raise  # 用户取消：不能按「视觉失败降级」吞掉
     except Exception as e:
         from utils.getLogs import kb_logger
         kb_logger.error(f"kb 视觉解析整体失败，回退纯文本层: {e}")

@@ -133,6 +133,9 @@
                 <div class="row-actions">
                   <el-button v-if="canManage && (row.run === 3 || row.run === -1)" size="small" text
                              @click="reparse(row)">重解析</el-button>
+                  <el-button v-if="canManage && (row.run === 1 || row.run === 0)" size="small" text
+                             type="warning" :loading="canceling.has(row.id)"
+                             @click="cancelParse(row)">取消解析</el-button>
                   <el-button v-if="canManage" size="small" text type="danger"
                              :disabled="row.run === 1" @click="onDeleteDoc(row)">删除</el-button>
                 </div>
@@ -325,7 +328,7 @@ import {
 } from '@element-plus/icons-vue'
 import {
   kbGet, kbUpdate, kbDelete,
-  kbDocList, kbDocUploadWithParser, kbDocParse, kbDocParser, kbDocAvailable, kbDocDelete,
+  kbDocList, kbDocUploadWithParser, kbDocParse, kbDocCancelParse, kbDocParser, kbDocAvailable, kbDocDelete,
   kbChunkList, kbRetrieval, kbParserMethods
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -455,6 +458,22 @@ async function reparse(row) {
     ElMessage.success('已提交解析')
     loadDocs()
   } catch (e) { ElMessage.error(e.message) }
+}
+
+const canceling = ref(new Set())
+async function cancelParse(row) {
+  try {
+    await ElMessageBox.confirm(`停止解析「${row.name}」？已完成的切片不会入库，文档将标记为失败，可随时重解析。`,
+      '取消解析', { type: 'warning', confirmButtonText: '停止解析', cancelButtonText: '继续解析' })
+  } catch { return }
+  canceling.value = new Set(canceling.value).add(row.id)
+  try {
+    await kbDocCancelParse(row.id)
+    ElMessage.success('已取消解析')
+    loadDocs()
+  } catch (e) { ElMessage.error(e.message) } finally {
+    const s = new Set(canceling.value); s.delete(row.id); canceling.value = s
+  }
 }
 
 async function toggleAvailable(row, v) {

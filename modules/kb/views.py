@@ -19,7 +19,7 @@ from utils.kb.es_client import kb_cfg
 from utils.kb.parser import SUPPORTED_EXTS, PARSER_METHODS, DEFAULT_PARSER
 from utils.api_key_auth import current_api_key
 from utils.kb.retrieval import retrieval
-from utils.kb.tasks import spawn_parse
+from utils.kb.tasks import request_cancel, spawn_parse
 
 router = APIRouter(responses={status.HTTP_404_NOT_FOUND: {"description": "Not found"}})
 
@@ -201,6 +201,23 @@ async def _doc_parse(doc_id: int, admin: dict = Depends(current_admin)):
         return GeneticResponse(code=400, msg="该文档正在解析中")
     await kb_orm.set_document_parse_state(doc_id, 0, 0.0, "排队中…")
     spawn_parse(doc_id)
+    return GeneticResponse()
+
+
+@router.post("/v1/kb/document/cancel/{doc_id}", summary="取消解析（等价失败）", tags=["通用接口"])
+async def _doc_cancel_parse(doc_id: int, admin: dict = Depends(current_admin)):
+    doc = await kb_orm.get_document(doc_id)
+    if not doc:
+        return GeneticResponse(code=400, msg="文档不存在")
+    kb = await kb_orm.get_dataset(doc["kb_id"])
+    if not _can_manage(admin, kb):
+        return _NOT_OWNER
+    if doc["run"] not in (0, 1):
+        return GeneticResponse(code=400, msg="该文档当前不在解析中")
+    # 先置库状态（立即反馈前端），再通知解析任务在下一个检查点退出。任务协程
+    # 退出时不覆写状态（见 tasks.parse_document 的 ParseCancelled 分支）。
+    await kb_orm.set_document_parse_state(doc_id, -1, -1, "已取消解析")
+    request_cancel(doc_id)
     return GeneticResponse()
 
 

@@ -117,6 +117,7 @@ export const kbDocUploadWithParser = (kbId, formData, parserId) =>
   http.post(`/v1/kb/${kbId}/document/upload${parserId ? `?parser_id=${encodeURIComponent(parserId)}` : ''}`,
     formData, { timeout: 120000 })
 export const kbDocParse = (docId) => http.post(`/v1/kb/document/parse/${docId}`)
+export const kbDocCancelParse = (docId) => http.post(`/v1/kb/document/cancel/${docId}`)
 export const kbDocParser = (docId, parserId) => http.post(`/v1/kb/document/parser/${docId}`, { parser_id: parserId })
 export const kbDocAvailable = (docId, available) => http.post(`/v1/kb/document/available/${docId}`, { available })
 export const kbDocDelete = (docId) => http.post(`/v1/kb/document/delete/${docId}`)
