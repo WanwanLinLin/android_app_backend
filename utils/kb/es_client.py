@@ -236,13 +236,17 @@ async def search_knn(vector: list, kb_ids: list, dim: int, size: int = 128) -> l
     return [(h["_id"], h["_score"], h.get("_source", {})) for h in r["hits"]["hits"]]
 
 
-async def list_chunks_by_doc(doc_id: int, dim: int, page: int = 1, size: int = 20):
+async def list_chunks_by_doc(doc_id: int, dim: int, page: int = 1, size: int = 20,
+                             offset: int = None):
+    # offset 与 page 两种分页语义（offset 优先）：后台页用 page；外部契约用
+    # offset/limit（非整页倍数时 page 换算不出来，如 offset=5 limit=10）
     es = await get_es()
     name = index_name(dim)
     if not await es.indices.exists(index=name):
         return {"rows": [], "total": 0}
+    frm = offset if offset is not None else (page - 1) * size
     body = {
-        "from": (page - 1) * size, "size": size, "track_total_hits": True,
+        "from": frm, "size": size, "track_total_hits": True,
         "sort": [{"position_int": "asc"}],
         "_source": ["doc_id", "content_with_weight", "token_num", "position_int", "available_int"],
         "query": {"term": {"doc_id": doc_id}},

@@ -22,6 +22,7 @@ from modules.session.views import router as session_router
 from modules.connect_check.views import router as connect_check_router
 from modules.llm_test.views import router as llm_test_router
 from modules.kb.views import router as kb_router
+from modules.rhn_workflow.views import router as rhn_workflow_router
 from utils.apierror import AdminRequiredError, JwtAuthError
 from utils.getLogs import LOG
 
@@ -73,6 +74,7 @@ app.include_router(session_router)
 app.include_router(connect_check_router)
 app.include_router(llm_test_router)
 app.include_router(kb_router)
+app.include_router(rhn_workflow_router)
 
 
 @app.exception_handler(JwtAuthError)
