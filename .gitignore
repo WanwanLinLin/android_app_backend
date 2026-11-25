@@ -15,7 +15,7 @@ temp/*
 skills/*
 node_modules
 dist/*
-dist_new/*
+dist_new
 backup/*
 my_tasks/*
 outputs/*

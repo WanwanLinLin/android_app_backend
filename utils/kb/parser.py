@@ -122,26 +122,29 @@ def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
     if not (vcfg.get("enabled") and vcfg.get("llm") and vcfg.get("photo_describe")):
         return text, []
 
-    # 按文档顺序收集内嵌照片：遍历段落 XML 的 a:blip，sha1 去重、尺寸过滤图标
+    # 按文档顺序收集内嵌照片：遍历整篇 body 的 a:blip，sha1 去重、尺寸过滤图标。
+    # 必须遍历 body 而非仅顶层段落 d.paragraphs —— 巡检/养护报告里大量现场照片
+    # 嵌在表格单元格中，python-docx 的 paragraphs 不含表格内图片，只遍历段落会
+    # 大面积漏检（实测某报告 200+ 张表格照片全被漏掉）。body.findall 按文档流
+    # 顺序返回，「图N」编号仍与阅读顺序一致。
     photos, seen, idx = [], set(), 0
-    for p in d.paragraphs:
-        for blip in p._p.findall(".//" + qn("a:blip")):
-            rid = blip.get(qn("r:embed"))
-            if not rid:
-                continue
-            try:
-                ip = p.part.related_parts[rid].image
-            except Exception:
-                continue
-            if ip.sha1 in seen:
-                continue
-            seen.add(ip.sha1)
-            w, h = ip.px_width or 0, ip.px_height or 0
-            if min(w, h) < vcfg["min_side"] or w * h < vcfg["min_area"]:
-                continue
-            idx += 1
-            photos.append({"uid": f"i{idx}", "label": f"图{idx}",
-                           "data": ip.blob, "ext": ip.ext or "png"})
+    for blip in d.element.body.findall(".//" + qn("a:blip")):
+        rid = blip.get(qn("r:embed"))
+        if not rid:
+            continue
+        try:
+            ip = d.part.related_parts[rid].image
+        except Exception:
+            continue
+        if ip.sha1 in seen:
+            continue
+        seen.add(ip.sha1)
+        w, h = ip.px_width or 0, ip.px_height or 0
+        if min(w, h) < vcfg["min_side"] or w * h < vcfg["min_area"]:
+            continue
+        idx += 1
+        photos.append({"uid": f"i{idx}", "label": f"图{idx}",
+                       "data": ip.blob, "ext": ip.ext or "png"})
     if not photos:
         return text, []
 
