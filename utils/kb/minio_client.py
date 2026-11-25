@@ -64,6 +64,24 @@ async def remove_object(key: str):
     await _client.remove_object(bucket, key)
 
 
+async def remove_prefix(prefix: str) -> int:
+    """删除前缀下全部对象（文档重解析/删除时清配图）。返回删除数，单项失败不中断。"""
+    await _ensure_bucket()
+    bucket = kb_cfg()["minio_bucket"]
+    n = 0
+    try:
+        objs = await _client.list_objects(bucket, prefix=prefix, recursive=True)
+    except Exception:
+        return 0
+    for obj in objs:
+        try:
+            await _client.remove_object(bucket, obj.object_name)
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
 async def presigned_get_object(key: str, expires_seconds: int = 3600) -> str:
     """生成临时下载链接（前端直读源文件时用，可选能力）。"""
     await _ensure_bucket()

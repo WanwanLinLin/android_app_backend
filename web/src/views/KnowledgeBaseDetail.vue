@@ -198,6 +198,13 @@
                   <span class="muted">向量 {{ (c.vector_similarity * 100).toFixed(1) }}%</span>
                 </div>
                 <div class="ret-content">{{ c.content }}</div>
+                <div v-if="c.images && c.images.length" class="ret-images">
+                  <el-image v-for="(u, k) in c.images" :key="k" :src="u" fit="cover"
+                            class="ret-img" :preview-src-list="c.images" :initial-index="k"
+                            preview-teleported lazy>
+                    <template #error><div class="ret-img-err">图片加载失败</div></template>
+                  </el-image>
+                </div>
               </div>
               <el-empty v-if="retDone && !retData.chunks.length"
                         description="没有命中（可降低相似度阈值再试）" :image-size="80" />
@@ -245,6 +252,24 @@
                 <el-option v-for="n in [32, 48, 64]" :key="n" :value="n" :label="`${n} 条`" />
               </el-select>
               <span class="muted" style="margin-left:12px">参与融合/重排的候选上限（越大越全但越慢）</span>
+            </el-form-item>
+            <el-form-item label="PDF 整页转录">
+              <el-select v-model="cfg.vision_page_ocr" :disabled="!canManage" style="width:200px">
+                <el-option value="follow" label="跟随全局默认" />
+                <el-option value="all" label="全文档逐页（表格手册最佳）" />
+                <el-option value="scan" label="仅扫描件/图片页" />
+                <el-option value="off" label="关闭" />
+              </el-select>
+              <span class="muted" style="margin-left:12px">视觉模型逐页转录，还原表格结构（仅 PDF 支持，需后台开启视觉）</span>
+            </el-form-item>
+            <el-form-item label="文档照片理解">
+              <el-select v-model="cfg.vision_photo_describe" :disabled="!canManage" style="width:200px">
+                <el-option value="follow" label="跟随全局默认" />
+                <el-option value="on" label="开启（描述现场照片）" />
+                <el-option value="off" label="关闭" />
+              </el-select>
+              <span class="muted" style="margin-left:12px">提取无文字照片的关键信息（病害、部位、标尺读数），并作为检索结果的配图</span>
+              <div class="muted" style="font-size:12px;line-height:1.5">仅 PDF 和 DOCX 支持图像分析；TXT / Markdown 为纯文本，无图像分析</div>
             </el-form-item>
             <el-form-item label="关键词相似度权重">
               <el-slider v-model="cfg.term_weight" :min="0" :max="1" :step="0.05"
@@ -525,27 +550,36 @@ async function doRetrieval() {
 // ---------------- 配置 ----------------
 const savingCfg = ref(false)
 const cfg = reactive({ name: '', desc: '', parser_id: 'General', chunk_token_num: 256,
-                       similarity_threshold: 0.2, term_weight: 0.7, rerank_limit: 64 })
+                       similarity_threshold: 0.2, term_weight: 0.7, rerank_limit: 64,
+                       vision_page_ocr: 'follow', vision_photo_describe: 'follow' })
 
 watch(kb, (v) => {
   if (!v) return
+  const vc = v.vision_config || {}
   Object.assign(cfg, {
     name: v.name, desc: v.desc || '', parser_id: v.parser_id || 'General',
     chunk_token_num: v.chunk_token_num,
     similarity_threshold: v.similarity_threshold,
     rerank_limit: [32, 48, 64].includes(v.rerank_limit) ? v.rerank_limit : 64,
+    vision_page_ocr: vc.page_ocr || 'follow',
+    vision_photo_describe: vc.photo_describe == null ? 'follow'
+                          : (vc.photo_describe ? 'on' : 'off'),
     term_weight: Math.round((1 - (v.vector_similarity_weight ?? 0.3)) * 100) / 100 })
 }, { immediate: true })
 
 async function saveConfig() {
   if (!cfg.name.trim()) return ElMessage.warning('名称不能为空')
   savingCfg.value = true
+  const vcfg = {}
+  if (cfg.vision_page_ocr !== 'follow') vcfg.page_ocr = cfg.vision_page_ocr
+  if (cfg.vision_photo_describe !== 'follow') vcfg.photo_describe = cfg.vision_photo_describe === 'on'
   try {
     await kbUpdate(kbId, {
       name: cfg.name.trim(), desc: cfg.desc, parser_id: cfg.parser_id,
       chunk_token_num: cfg.chunk_token_num,
       similarity_threshold: cfg.similarity_threshold,
       rerank_limit: cfg.rerank_limit,
+      vision_config: vcfg,
       vector_similarity_weight: Math.round((1 - cfg.term_weight) * 100) / 100 })
     ElMessage.success('已保存')
     loadKb()
@@ -645,6 +679,15 @@ onMounted(() => { loadKb(); loadDocs(); loadParserMethods() })
 .ret-content {
   font-size: 13px; color: #3c4257; line-height: 1.65; max-height: 88px; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+}
+.ret-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ret-img {
+  width: 96px; height: 96px; border-radius: 8px; border: 1px solid #e4e7ec;
+  cursor: zoom-in; background: #f6f7fb;
+}
+.ret-img-err {
+  width: 96px; height: 96px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: #98a2b3; background: #f6f7fb; border-radius: 8px;
 }
 
 /* 切片方法单元格（ragflow 风格：可点文字 + 小箭头） */

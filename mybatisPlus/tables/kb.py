@@ -29,6 +29,7 @@ class KbDataset(Base):
     chunk_token_num = Column(Integer, default=256, comment="分块目标 token 数")
     similarity_threshold = Column(Float, default=0.2, comment="检索相似度阈值")
     rerank_limit = Column(Integer, default=64, comment="检索候选命中上限（融合截断/rerank 条数，8~256）")
+    vision_config = Column(JSON, default=None, comment="PDF 图像分析库级覆盖：{page_ocr: all|scan|off, photo_describe: bool}，缺省跟随 config kb.vision")
     vector_similarity_weight = Column(Float, default=0.3, comment="融合打分中向量分量权重（其余为全文 BM25 归一权重）")
     doc_num = Column(Integer, default=0, comment="文档数（冗余计数）")
     chunk_num = Column(Integer, default=0, comment="chunk 数（冗余计数）")

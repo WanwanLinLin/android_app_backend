@@ -13,7 +13,7 @@ import time
 from utils.getLogs import kb_logger
 from utils.kb import es_client, minio_client
 from utils.kb.embedding import embed_texts
-from utils.kb.parser import extract_text, split_chunks
+from utils.kb.parser import attach_image_ids, extract_text, photo_key, split_chunks
 from utils.kb.es_client import kb_cfg
 
 _sem: asyncio.Semaphore | None = None
@@ -56,8 +56,34 @@ async def parse_document(doc_id: int):
             data = await minio_client.get_object(doc["location"])
 
             await kb_orm.set_document_parse_state(doc_id, 1, 0.2, "解析文本…")
-            text = await asyncio.to_thread(extract_text, data, doc["file_type"])
+            text, v_images = await asyncio.to_thread(extract_text, data, doc["file_type"],
+                                                     _vision_progress_cb(doc_id),
+                                                     kb.get("vision_config"))
             chunks = await asyncio.to_thread(split_chunks, text, chunk_num_cfg, parser_id)
+            # 照片原图传对象存储作为 chunk 配图（单张失败仅丢该图，不阻断解析）。
+            # 每次解析换随机 salt：取图接口无鉴权（<img> 无法带头），靠不可猜
+            # key 防遍历；旧图先按文档前缀清理，重解析不残留
+            uploaded = set()
+            if v_images:
+                import secrets as _secrets
+                salt = _secrets.token_hex(8)
+                for img in v_images:
+                    img["salt"] = salt
+                await minio_client.remove_prefix(f"kb/{doc['kb_id']}/doc/{doc_id}/")
+                for img in v_images:
+                    key = photo_key(doc["kb_id"], doc_id, img)
+                    try:
+                        await minio_client.put_object(
+                            key, img["data"], f"image/{img.get('ext') or 'png'}")
+                        uploaded.add(key)
+                    except Exception as e:
+                        kb_logger.info(f"kb 文档 #{doc_id} 配图上传失败({key}): {e}")
+                kb_logger.info(f"kb 文档 #{doc_id} 配图入库 {len(uploaded)}/{len(v_images)}")
+            chunks = attach_image_ids(chunks, doc["kb_id"], doc_id, v_images)
+            # 上传失败的配图不写进 chunk，避免检索返回取不到的图
+            chunks = [(c[0], c[1], c[2],
+                       [k for k in (c[3] or []) if k in uploaded] or None)
+                      for c in chunks]
             if not chunks:
                 # 空文档：清旧 chunk 后直接完成
                 await es_client.delete_by_doc(doc_id, dim)
@@ -81,7 +107,8 @@ async def parse_document(doc_id: int):
             docs = [{
                 "kb_id": doc["kb_id"], "doc_id": doc_id, "docnm": doc["name"],
                 "content": c[0], "tokens": _tok(c[0]), "vec": v,
-                "token_num": c[1], "position": c[2], "create_time_flt": now,
+                "token_num": c[1], "position": c[2],                 "create_time_flt": now,
+                "img_id": c[3] or [],
                 # 文档若处于停用状态，重解析后 chunk 仍保持不可检索
                 "available": doc.get("available", True),
             } for c, v in zip(chunks, vectors)]
@@ -99,6 +126,36 @@ async def parse_document(doc_id: int):
                 await kb_orm.set_document_parse_state(doc_id, -1, -1, f"解析失败：{e}")
             except Exception:
                 pass
+
+
+def _vision_progress_cb(doc_id: int):
+    """视觉解析进度回调（在工作线程中被调用，仅 PDF+视觉开启时有意义）。
+
+    用 run_coroutine_threadsafe 把进度写回主事件循环（0.2~0.3 段按页线性），
+    回调自身节流交由 vision 侧控制，这里再加异常兜底保证不影响解析。
+    """
+    main_loop = asyncio.get_running_loop()
+
+    def cb(done: int, total: int):
+        if total <= 0:
+            return
+        prog = round(0.2 + 0.1 * min(1.0, done / total), 3)
+        msg = f"视觉识别 {done}/{total}…"
+        try:
+            asyncio.run_coroutine_threadsafe(
+                kb_orm_set_state(doc_id, prog, msg), main_loop)
+        except Exception:
+            pass
+
+    return cb
+
+
+async def kb_orm_set_state(doc_id: int, prog: float, msg: str):
+    from mybatisPlus import kb_orm
+    try:
+        await kb_orm.set_document_parse_state(doc_id, 1, prog, msg)
+    except Exception:
+        pass
 
 
 def _tok(text: str) -> str:

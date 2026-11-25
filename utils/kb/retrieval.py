@@ -114,14 +114,24 @@ async def retrieval(question: str, kb_metas: list, page: int = 1, size: int = 10
     passed = [it for it in items if it["sim"] >= thr]
     total = len(passed)
     page_items = passed[(page - 1) * size: page * size]
-    chunks = [{
-        "chunk_id": it["chunk_id"],
-        "kb_id": it["src"].get("kb_id"),
-        "doc_id": it["src"].get("doc_id"),
-        "document_name": it["src"].get("docnm_kwd"),
-        "content": it["src"].get("content_with_weight", ""),
-        "similarity": round(it["sim"], 4),
-        "vector_similarity": round(it["vcos"], 4),
-        "term_similarity": round(it["bm25"], 4),
-    } for it in page_items]
+    chunks = []
+    for it in page_items:
+        # img_id 兼容：新 chunk 为 key 数组，旧数据可能是单串/空串
+        raw = it["src"].get("img_id") or []
+        if isinstance(raw, str):
+            raw = [raw] if raw else []
+        chunks.append({
+            "chunk_id": it["chunk_id"],
+            "kb_id": it["src"].get("kb_id"),
+            "doc_id": it["src"].get("doc_id"),
+            "document_name": it["src"].get("docnm_kwd"),
+            "content": it["src"].get("content_with_weight", ""),
+            "similarity": round(it["sim"], 4),
+            "vector_similarity": round(it["vcos"], 4),
+            "term_similarity": round(it["bm25"], 4),
+            # 配图访问路径（无图=空数组）。消费方拼 {base_url}/v1/kb/image/{img_id}
+            # 取图（对齐 ragflow 的 /document/image/{image_id} 代理模式，key 含
+            # 随机段不可枚举，接口本身不做鉴权，与 ragflow 口径一致）
+            "images": [f"/v1/kb/image/{k}" for k in raw],
+        })
     return {"chunks": chunks, "total": total, "vector_similarity_weight": vsw}

@@ -11,6 +11,7 @@ import asyncio
 from elasticsearch import AsyncElasticsearch
 
 from setting import get_service
+from utils.getLogs import kb_logger
 
 _cfg = None
 _es: AsyncElasticsearch | None = None
@@ -67,13 +68,18 @@ def _mapping(dim: int) -> dict:
                 "position_int": {"type": "integer"},
                 "available_int": {"type": "integer"},
                 "create_time_flt": {"type": "float"},
+                # chunk 配图的对象存储 key 数组（空=无图），检索原样带出
+                "img_id": {"type": "keyword", "index": False},
             },
         },
     }
 
 
 async def ensure_index(dim: int):
-    """确保维度索引存在（进程内缓存 + 锁防并发重复建）。"""
+    """确保维度索引存在（进程内缓存 + 锁防并发重复建）。
+
+    旧索引动态 strict，缺后加字段会拒写；顺带幂等 put_mapping 补 img_id。
+    """
     name = index_name(dim)
     if name in _ready_indexes:
         return
@@ -87,6 +93,12 @@ async def ensure_index(dim: int):
             except Exception as e:  # 并发创建竞态：已存在即可
                 if "resource_already_exists" not in str(e):
                     raise
+        else:
+            try:
+                await es.indices.put_mapping(
+                    index=name, properties={"img_id": {"type": "keyword", "index": False}})
+            except Exception as e:
+                kb_logger.warning(f"kb 索引 {name} 补 img_id 映射失败: {e}")
         _ready_indexes.add(name)
 
 
@@ -107,6 +119,7 @@ async def bulk_index(chunks: list, dim: int, refresh: bool = False):
                 "token_num": c["token_num"], "position_int": c["position"],
                 "available_int": 1 if c.get("available", True) else 0,
                 "create_time_flt": c.get("create_time_flt", 0.0),
+                "img_id": c.get("img_id") or [],
             }
 
     ops = list(gen())
@@ -175,7 +188,8 @@ async def search_bm25(query_tokens: str, kb_ids: list, dim: int, size: int = 128
         return []
     body = {
         "size": size,
-        "_source": ["kb_id", "doc_id", "docnm_kwd", "content_with_weight", "token_num"],
+        "_source": ["kb_id", "doc_id", "docnm_kwd", "content_with_weight",
+                    "token_num", "img_id"],
         "query": {
             "bool": {
                 "filter": [
@@ -205,7 +219,8 @@ async def search_knn(vector: list, kb_ids: list, dim: int, size: int = 128) -> l
         return []
     body = {
         "size": size,
-        "_source": ["kb_id", "doc_id", "docnm_kwd", "content_with_weight", "token_num"],
+        "_source": ["kb_id", "doc_id", "docnm_kwd", "content_with_weight",
+                    "token_num", "img_id"],
         "knn": {
             "field": f"q_{dim}_vec",
             "query_vector": vector,

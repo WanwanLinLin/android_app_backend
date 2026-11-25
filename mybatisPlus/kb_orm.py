@@ -29,6 +29,25 @@ def _clamp_rerank_limit(v) -> int:
     return min(RERANK_LIMITS, key=lambda x: (abs(x - n), x))
 
 
+def _norm_vision_config(v):
+    """库级图像分析配置归一：仅保留 page_ocr(all|scan|off)/photo_describe(bool)。
+
+    两键都可缺省（跟随全局），空 dict 表示完全跟随全局。非 dict/非法值忽略。
+    """
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    po = v.get("page_ocr")
+    if isinstance(po, bool):
+        po = "scan" if po else "off"
+    if po in ("all", "scan", "off"):
+        out["page_ocr"] = po
+    pd = v.get("photo_describe")
+    if pd is not None:
+        out["photo_describe"] = bool(pd)
+    return out
+
+
 def _ser_dataset(d: KbDataset) -> dict:
     return {"id": d.id, "name": d.name, "desc": d.desc, "created_by": d.created_by,
             "owner_name": d.owner_name,
@@ -37,6 +56,7 @@ def _ser_dataset(d: KbDataset) -> dict:
             "chunk_token_num": d.chunk_token_num,
             "similarity_threshold": d.similarity_threshold,
             "rerank_limit": d.rerank_limit or 64,
+            "vision_config": d.vision_config or {},
             "vector_similarity_weight": d.vector_similarity_weight,
             "doc_num": d.doc_num or 0, "chunk_num": d.chunk_num or 0,
             "token_num": d.token_num or 0,
@@ -66,7 +86,7 @@ async def create_dataset(user_id: int, name: str, desc=None, embd_id=None,
                          vector_similarity_weight: float = 0.3,
                          parser_id: str = "General",
                          owner_name: str = None,
-                         rerank_limit: int = 64):
+                         rerank_limit: int = 64, vision_config: dict = None):
     async with AsyncSessionLocal() as session:
         # 库按创建者私有：同名查重仅限本人库内，不同用户可建同名库
         dup = await session.scalar(select(KbDataset).where(
@@ -79,7 +99,8 @@ async def create_dataset(user_id: int, name: str, desc=None, embd_id=None,
                       similarity_threshold=similarity_threshold,
                       vector_similarity_weight=vector_similarity_weight,
                       parser_id=parser_id or "General",
-                      rerank_limit=_clamp_rerank_limit(rerank_limit))
+                      rerank_limit=_clamp_rerank_limit(rerank_limit),
+                      vision_config=_norm_vision_config(vision_config) or None)
         session.add(d)
         await session.commit()
         await session.refresh(d)
@@ -113,10 +134,12 @@ async def update_dataset(kb_id: int, owner_id: int = None, is_admin: bool = Fals
     allowed = {k: v for k, v in payload.items()
                if k in ("name", "desc", "chunk_token_num", "parser_id",
                         "similarity_threshold", "vector_similarity_weight",
-                        "rerank_limit")
+                        "rerank_limit", "vision_config")
                and v is not None}
     if "rerank_limit" in allowed:
         allowed["rerank_limit"] = _clamp_rerank_limit(allowed["rerank_limit"])
+    if "vision_config" in allowed:
+        allowed["vision_config"] = _norm_vision_config(allowed["vision_config"]) or None
     if not allowed:
         return GeneticResponse(code=400, msg="没有可更新的字段")
     async with AsyncSessionLocal() as session:

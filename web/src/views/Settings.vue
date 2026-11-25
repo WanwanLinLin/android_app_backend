@@ -192,7 +192,7 @@ async function copy(text) {
 
 const docs = [
   {
-    method: 'POST', path: '/v1/kb/open/retrieval', desc: '检索（混合 BM25+向量）。不传 kb_ids 则检索本账号全部知识库。',
+    method: 'POST', path: '/v1/kb/open/retrieval', desc: '检索（混合 BM25+向量）。不传 kb_ids 则检索本账号全部知识库。chunk 含 images 字段（配图访问路径，可能为空数组），拼上服务地址即可直接作为图片 URL 展示，如 http://<host:8852>/v1/kb/image/kb/1/doc/2/ab12_p3.png。',
     curl: `curl -X POST ${baseOrigin || 'http://<host:8852>'}/v1/kb/open/retrieval \\\n  -H "Authorization: Bearer <API_KEY>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"question":"如何开机？","size":5,"kb_ids":[1]}'`,
   },
   {

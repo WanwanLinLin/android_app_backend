@@ -97,6 +97,7 @@ elasticsearch==8.12.1
 miniopy-async==1.23.6
 jieba==0.42.1
 pypdf>=5.0.0,<6.0.0
+pymupdf>=1.24.0  # kb 视觉解析：PDF 逐页渲染/内嵌图提取（utils/kb/vision.py）
 python-docx>=1.1.2,<2.0.0
 
 # 本地 whl 安装，不在 PyPI：pip install 3rd/fireredvad-1.0.0-cp312-cp312-manylinux2014_x86_64.whl

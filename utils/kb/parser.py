@@ -49,25 +49,164 @@ _HEADING_RE = re.compile(
 _LAW_ARTICLE_RE = re.compile(r"^\s*第[零〇一二三四五六七八九十百千万0-9]+条")
 
 
-def extract_text(data: bytes, ext: str) -> str:
+def extract_text(data: bytes, ext: str, vision_progress=None,
+                 kb_vision=None) -> tuple:
+    """返回 (text, images)。images 为内嵌照片清单（PDF/DOCX 且视觉开启时非空），
+    见 vision.extract_pdf_vision / _extract_docx；txt/md 恒为空。"""
     ext = (ext or "").lower()
     if ext in ("txt", "md"):
-        return data.decode("utf-8", errors="ignore")
+        return data.decode("utf-8", errors="ignore"), []
     if ext == "pdf":
+        return _extract_pdf(data, vision_progress, kb_vision)
+    if ext == "docx":
+        return _extract_docx(data, vision_progress, kb_vision)
+    raise ValueError(f"不支持的文件类型: {ext}")
+
+
+_PHOTO_MARK_RE = re.compile(r"\[照片 ([^\]]+?)\]")
+
+
+def photo_key(kb_id, doc_id, img: dict) -> str:
+    """chunk 配图在 MinIO 的对象 key：kb/{kb_id}/doc/{doc_id}/{salt}_{uid}.{ext}。
+
+    uid 为文档内图片的稳定标识（PDF=p{页}_x{xref}，DOCX=i{序号}）。salt 为每次
+    解析新生成的随机段（tasks.py 写入 img["salt"]）：取图接口不鉴权（浏览器
+    <img> 无法携带 Authorization，对齐 RAGFlow），靠不可猜的随机段防遍历；
+    重解析生成新 key，旧图由 tasks 按文档前缀清理。
+    """
+    ext = re.sub(r"[^a-z0-9]", "", str(img.get("ext") or "png").lower())[:5] or "png"
+    uid = re.sub(r"[^0-9a-zA-Z_]", "_", str(img.get("uid") or "img"))[:40]
+    return f"kb/{kb_id}/doc/{doc_id}/{img.get('salt') or 'x'}_{uid}.{ext}"
+
+
+def attach_image_ids(chunks: list, kb_id, doc_id, images: list) -> list:
+    """按 chunk 文本中的照片标记（[照片 {label}]）回填配图 key 列表。
+
+    返回 [(text, token_num, position, [img_key] 或 None), ...]。一个 chunk 可
+    命中多张图（如 DOCX 末尾连续的照片描述段被切进同一块），按出现顺序去重。"""
+    if not images:
+        return [tuple(c) + (None,) for c in chunks]
+    by_label = {img["label"]: photo_key(kb_id, doc_id, img)
+                for img in images if img.get("label")}
+    out = []
+    for c in chunks:
+        keys = []
+        for m in _PHOTO_MARK_RE.finditer(c[0]):
+            k = by_label.get(m.group(1))
+            if k and k not in keys:
+                keys.append(k)
+        out.append(tuple(c) + (keys or None,))
+    return out
+
+
+def _extract_docx(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
+    """DOCX 抽取：python-docx 段落+表格（原行为）；视觉开启时叠加内嵌照片
+    理解（Word 是文本性格式，无整页转录需求，只走照片理解+配图）。
+
+    照片按文档出现顺序编号「图N」，描述以 [照片 图N] 段落跟在正文后；原图随
+    images 清单带出，由 tasks.py 上传配图。kb_vision 库级可覆盖 photo_describe。
+    """
+    import docx
+    from docx.oxml.ns import qn
+    d = docx.Document(io.BytesIO(data))
+    parts = [p.text for p in d.paragraphs if p.text.strip()]
+    for table in d.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                parts.append("\t".join(cells))
+    text = "\n".join(parts)
+
+    from utils.kb.vision import describe_photos, vision_cfg
+    vcfg = vision_cfg(kb_vision)
+    if not (vcfg.get("enabled") and vcfg.get("llm") and vcfg.get("photo_describe")):
+        return text, []
+
+    # 按文档顺序收集内嵌照片：遍历段落 XML 的 a:blip，sha1 去重、尺寸过滤图标
+    photos, seen, idx = [], set(), 0
+    for p in d.paragraphs:
+        for blip in p._p.findall(".//" + qn("a:blip")):
+            rid = blip.get(qn("r:embed"))
+            if not rid:
+                continue
+            try:
+                ip = p.part.related_parts[rid].image
+            except Exception:
+                continue
+            if ip.sha1 in seen:
+                continue
+            seen.add(ip.sha1)
+            w, h = ip.px_width or 0, ip.px_height or 0
+            if min(w, h) < vcfg["min_side"] or w * h < vcfg["min_area"]:
+                continue
+            idx += 1
+            photos.append({"uid": f"i{idx}", "label": f"图{idx}",
+                           "data": ip.blob, "ext": ip.ext or "png"})
+    if not photos:
+        return text, []
+
+    try:
+        annotated, images = describe_photos(photos, kb_vision=kb_vision,
+                                            progress_cb=vision_progress)
+    except Exception as e:
+        from utils.getLogs import kb_logger
+        kb_logger.error(f"kb DOCX 视觉解析失败，仅按文本入库: {e}")
+        return text, []
+    tail = [f"[照片 {label}] {desc}" for label, desc in annotated]
+    return "\n".join([text] + tail) if tail else text, images
+
+
+def _extract_pdf(data: bytes, vision_progress=None, kb_vision=None) -> tuple:
+    """PDF 抽取。视觉关闭：pypdf 全文（原行为）；开启：逐页文本层与视觉
+    输出（整页转录/照片描述）按页交错拼接。
+
+    视觉开启时文本层改用 pymupdf：逐页对齐需要页粒度抽取（pypdf 也支持但
+    pymupdf 保真更好，实测可避开 pypdf 的 1mm→lmm 字形误读）。
+    kb_vision 为知识库级 vision_config，可覆盖全局 page_ocr/photo_describe。
+    """
+    from utils.kb.vision import vision_cfg
+    vcfg = vision_cfg(kb_vision)
+    if not (vcfg.get("enabled") and vcfg.get("llm")):
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
-    if ext == "docx":
-        import docx
-        d = docx.Document(io.BytesIO(data))
-        parts = [p.text for p in d.paragraphs if p.text.strip()]
-        for table in d.tables:
-            for row in table.rows:
-                cells = [c.text.strip() for c in row.cells]
-                if any(cells):
-                    parts.append("\t".join(cells))
-        return "\n".join(parts)
-    raise ValueError(f"不支持的文件类型: {ext}")
+        return "\n".join((page.extract_text() or "") for page in reader.pages), []
+
+    import pymupdf
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    page_texts = []
+    for pno in range(len(doc)):
+        try:
+            page_texts.append(doc[pno].get_text() or "")
+        except Exception:
+            page_texts.append("")
+    doc.close()
+
+    from utils.kb.vision import extract_pdf_vision
+    try:
+        vpages, vimages = extract_pdf_vision(data, progress_cb=vision_progress,
+                                             kb_vision=kb_vision)
+    except Exception as e:
+        from utils.getLogs import kb_logger
+        kb_logger.error(f"kb 视觉解析整体失败，回退纯文本层: {e}")
+        vpages, vimages = [], []
+    vmap = {v["page"]: v for v in vpages}
+
+    parts = []
+    for pno, raw in enumerate(page_texts, start=1):
+        v = vmap.get(pno)
+        if not v:
+            parts.append(raw)
+            continue
+        # vision 只对「文本层不可靠」的页产出转录（扫描页 或 表格密集文档页），
+        # 故凡有 ocr 结果即优先用它（表格还原、无字形误读），否则保留保真文本层。
+        # 照片描述总是追加为独立段落。
+        body = v["ocr"] if v["ocr"] else raw
+        block = [body] if body and body.strip() else []
+        for label, desc in v["photos"]:
+            block.append(f"[照片 {label}] {desc}")
+        if block:
+            parts.append("\n".join(block))
+    return "\n".join(parts), vimages
 
 
 def split_chunks(text: str, chunk_token_num: int = 256,

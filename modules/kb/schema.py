@@ -12,6 +12,7 @@ class AddKbModel(BaseModel):
     vector_similarity_weight: Union[float, None] = 0.3
     parser_id: Union[str, None] = "General"  # 默认切片方法（文档未单独指定时继承）
     rerank_limit: Union[int, None] = 64  # 检索命中候选上限（8~256）
+    vision_config: Union[dict, None] = None  # PDF 图像分析库级覆盖 {page_ocr, photo_describe}
 
 
 class UpdateKbModel(BaseModel):
@@ -22,6 +23,7 @@ class UpdateKbModel(BaseModel):
     vector_similarity_weight: Union[float, None] = None
     parser_id: Union[str, None] = None
     rerank_limit: Union[int, None] = None
+    vision_config: Union[dict, None] = None
 
 
 class DocAvailableModel(BaseModel):

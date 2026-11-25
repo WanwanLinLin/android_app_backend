@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
+import re
 import time
 import uuid
 
 from . import schema
 from typing import Union
 from fastapi import APIRouter, UploadFile, File, Query, status, Depends
+from fastapi.responses import JSONResponse, Response
 
 from utils.common.schema import GeneticResponse
 from utils.admin_auth import current_admin, is_admin
@@ -130,6 +132,10 @@ async def _kb_delete(kb_id: int, admin: dict = Depends(current_admin)):
                 await minio_client.remove_object(d["location"])
             except Exception as e:
                 kb_logger.error(f"kb 删库时清理文档 #{d['id']} MinIO 失败: {e}")
+        try:
+            await minio_client.remove_prefix(f"kb/{kb_id}/doc/{d['id']}/")
+        except Exception as e:
+            kb_logger.error(f"kb 删库时清理文档 #{d['id']} 配图失败: {e}")
     await kb_orm.soft_delete_dataset(kb_id)
     return GeneticResponse()
 
@@ -255,6 +261,10 @@ async def _doc_delete(doc_id: int, admin: dict = Depends(current_admin)):
             await minio_client.remove_object(doc["location"])
         except Exception as e:
             kb_logger.error(f"kb 删除文档 #{doc_id} MinIO 清理失败: {e}")
+    try:
+        await minio_client.remove_prefix(f"kb/{doc['kb_id']}/doc/{doc_id}/")
+    except Exception as e:
+        kb_logger.error(f"kb 删除文档 #{doc_id} 配图清理失败: {e}")
     await kb_orm.soft_delete_document(doc_id)
     return GeneticResponse()
 
@@ -271,6 +281,33 @@ async def _chunk_list(kb_id: int, doc_id: int, page: int = 1, size: int = 20,
 
 
 # ---------------- 检索 ----------------
+
+# ---------------- chunk 配图 ----------------
+
+_PHOTO_KEY_RE = re.compile(
+    r"^kb/\d+/doc/\d+/[0-9a-f]{8,32}_[0-9a-zA-Z_]{1,40}\.(png|jpg|jpeg|gif|webp|bmp)$")
+_EXT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp"}
+
+
+@router.get("/v1/kb/image/{img_id:path}", summary="chunk 配图（对象存储代理）", tags=["通用接口"])
+async def _kb_image(img_id: str):
+    """按对象 key 返回 chunk 配图二进制（对齐 ragflow /document/image/{image_id}）。
+
+    不做登录鉴权：浏览器 <img>/终端图片控件无法携带 JWT/API Key。防护靠 key 本身
+    ——含解析时新生成的 16 位十六进制随机段且从不外泄（检索只给出完整 key），
+    不可枚举；再以严格正则限定前缀与扩展名，任何其它对象一律 404。
+    """
+    if not _PHOTO_KEY_RE.match(img_id or ""):
+        return JSONResponse(status_code=404, content={"code": 404, "msg": "图片不存在"})
+    try:
+        data = await minio_client.get_object(img_id)
+    except Exception:
+        return JSONResponse(status_code=404, content={"code": 404, "msg": "图片不存在"})
+    ext = img_id.rsplit(".", 1)[-1].lower()
+    return Response(content=data, media_type=_EXT_MIME.get(ext, "application/octet-stream"),
+                    headers={"Cache-Control": "public, max-age=86400"})
+
 
 @router.post("/v1/kb/retrieval", summary="知识库检索测试", tags=["通用接口"])
 async def _retrieval(info: schema.KbRetrievalModel, admin: dict = Depends(current_admin)):
